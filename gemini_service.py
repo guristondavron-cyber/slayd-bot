@@ -144,7 +144,6 @@ async def generate_presentation_with_gemini(
 
     except Exception as e:
         logger.warning(f"models.generate_content failed: {e}. Trying fallback call...")
-        # Fallback without strict response_schema if schema serialization had an issue
         response = await client.aio.models.generate_content(
             model=config.GEMINI_MODEL,
             contents=prompt + "\n\nQAT'IY TALAB: Javobni faqat va faqat to'g'ri JSON formatida qaytaring, hech qanday qo'shimcha matn yozmang.",
@@ -155,6 +154,66 @@ async def generate_presentation_with_gemini(
         )
         cleaned_json = _clean_json_string(response.text or "{}")
         return PresentationContent.model_validate_json(cleaned_json)
+
+
+def build_document_prompt(doc_text: str, slide_count: int, language: str = "uz") -> str:
+    lang_instruction = {
+        "uz": "Barcha matnlar va sarlavhalar o'zbek adabiy tilida (lotin alifbosida) bo'lsin.",
+        "ru": "Все тексты и заголовки должны быть на качественном русском языке.",
+        "en": "All texts and headings must be in clear, professional English.",
+    }.get(language, "O'zbek tilida yozing.")
+
+    return f"""Siz professional taqdimotlar tahlilchisisiz.
+Quyida berilgan hujjat/maqola matnidan eng muhim asosiy g'oyalar, xulosalar, faktlar va statistikani ajratib olib, 
+aynan shu manba asosida {slide_count} ta slayddan iborat mukammal taqdimot kontentini tayyorlang.
+
+MANBA HUJJAT MATNI:
+\"\"\"
+{doc_text[:12000]}
+\"\"\"
+
+TIL TALABI:
+{lang_instruction}
+
+MUHIM QOIDALAR:
+1. 1-slayd: Hujjatning asosiy mavzusiga bag'ishlangan "title_slide".
+2. O'rta slaydlar: Hujjatdagi muammolar, tahlillar, raqamlar ("stats_metrics"), solishtirishlar ("comparison") va bosqichlar ("timeline_steps").
+3. Oxirgi slayd: Hujjat bo'yicha yakuniy xulosalar ("conclusion").
+4. Jami roppa-rosa {slide_count} ta slayd tuzing.
+"""
+
+
+async def generate_presentation_from_document(
+    doc_text: str,
+    slide_count: int = 5,
+    language: str = "uz",
+    api_key: Optional[str] = None,
+) -> PresentationContent:
+    """Foydalanuvchi yuklagan PDF yoki Word matni asosida slaydlar yaratadi."""
+    key = api_key or config.GEMINI_API_KEY
+    if not key:
+        return generate_mock_presentation("Hujjat Tahlili", slide_count=slide_count)
+
+    client = genai.Client(api_key=key)
+    prompt = build_document_prompt(doc_text, slide_count, language)
+
+    try:
+        response = await client.aio.models.generate_content(
+            model=config.GEMINI_MODEL,
+            contents=prompt,
+            config=types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=PresentationContent,
+                temperature=0.7,
+            ),
+        )
+        cleaned_json = _clean_json_string(response.text or "")
+        return PresentationContent.model_validate_json(cleaned_json)
+    except Exception as e:
+        logger.warning(f"generate_presentation_from_document fallback: {e}")
+        first_line = doc_text.splitlines()[0][:30] if doc_text else "Hujjat Tahlili"
+        return generate_mock_presentation(first_line, slide_count=slide_count)
+
 
 
 def generate_mock_presentation(topic: str, slide_count: int = 5) -> PresentationContent:
