@@ -86,6 +86,32 @@ async def safe_callback_answer(callback: CallbackQuery, text: str = None, show_a
         pass
 
 
+async def safe_edit_or_answer(
+    message: Message,
+    text: str,
+    reply_markup: Optional[InlineKeyboardMarkup] = None,
+    parse_mode: str = "HTML",
+    disable_web_page_preview: bool = True,
+) -> Message:
+    """Xabar matn bo'lsa uni tahrirlaydi, hujjat/media yoki eskirgan bo'lsa yangi xabar yuboradi."""
+    try:
+        if message.text is not None:
+            return await message.edit_text(
+                text,
+                reply_markup=reply_markup,
+                parse_mode=parse_mode,
+                disable_web_page_preview=disable_web_page_preview,
+            )
+    except Exception:
+        pass
+    return await message.answer(
+        text,
+        reply_markup=reply_markup,
+        parse_mode=parse_mode,
+        disable_web_page_preview=disable_web_page_preview,
+    )
+
+
 async def check_channel_subscription(bot: Bot, user_id: int) -> Tuple[bool, str]:
     if is_admin(user_id):
         return True, ""
@@ -283,7 +309,7 @@ async def cb_check_subscription(callback: CallbackQuery, bot: Bot):
             f"📊 <b>Sizning balansingiz:</b> {bal}\n\n"
             f"Slayd yaratish uchun quyidagi tugmani bosing:"
         )
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_keyboard(user_id))
+        await safe_edit_or_answer(callback.message, text, reply_markup=main_menu_keyboard(user_id))
     else:
         await safe_callback_answer(callback, "Siz hali kanalga a'zo bo'lmadingiz!", show_alert=True)
 
@@ -292,7 +318,7 @@ async def cb_check_subscription(callback: CallbackQuery, bot: Bot):
 async def cb_cancel(callback: CallbackQuery, state: FSMContext):
     await state.clear()
     await safe_callback_answer(callback)
-    await callback.message.edit_text("Amal bekor qilindi.", reply_markup=main_menu_keyboard(callback.from_user.id))
+    await safe_edit_or_answer(callback.message, "Amal bekor qilindi.", reply_markup=main_menu_keyboard(callback.from_user.id))
 
 
 # ------------------ PROFIL VA REFERAL ------------------
@@ -335,7 +361,7 @@ async def cb_profile(callback: CallbackQuery, bot: Bot):
             [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
         ]
     )
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
 
 
 # ------------------ PROMOKOD ISHLATISH ------------------
@@ -390,7 +416,7 @@ async def cb_tariffs(callback: CallbackQuery):
             [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
         ]
     )
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
 
 
 # ------------------ SLAYD YARATISH OQIMI ------------------
@@ -401,9 +427,9 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
     is_subbed, channel = await check_channel_subscription(bot, user_id)
     if not is_subbed:
-        await callback.message.edit_text(
+        await safe_edit_or_answer(
+            callback.message,
             f"⚠️ Slayd yaratish uchun avval rasmiy kanalimizga a'zo bo'ling:\n👉 <b>{channel}</b>",
-            parse_mode="HTML",
             reply_markup=channel_sub_keyboard(channel),
         )
         return
@@ -425,7 +451,7 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
                 [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
             ]
         )
-        await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
+        await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
         return
 
     await state.set_state(SlideCreationState.waiting_for_topic)
@@ -437,7 +463,7 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
         "3. 📄 <b>PDF yoki Word (.docx)</b> hujjat yuboring\n\n"
         "Mavzuni yozing yoki fayl tashlang:"
     )
-    await callback.message.edit_text(text, parse_mode="HTML")
+    await safe_edit_or_answer(callback.message, text)
 
 
 @router.message(F.voice, SlideCreationState.waiting_for_topic)
@@ -527,14 +553,14 @@ async def process_language(callback: CallbackQuery, state: FSMContext):
     topic = data.get("topic", "")
 
     text = f"📌 <b>Mavzu:</b> <i>{topic}</i>\n\nTaqdimotda <b>nechta slayd</b> bo'lishini tanlang:"
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=slide_count_keyboard())
+    await safe_edit_or_answer(callback.message, text, reply_markup=slide_count_keyboard())
 
 
 @router.callback_query(F.data == "count_custom", SlideCreationState.waiting_for_slide_count)
 async def process_custom_count_prompt(callback: CallbackQuery, state: FSMContext):
     await safe_callback_answer(callback)
     await state.set_state(SlideCreationState.waiting_for_custom_slide_count)
-    await callback.message.edit_text("Nechta slayd kerakligini raqamda yozing (1 dan 25 gacha):")
+    await safe_edit_or_answer(callback.message, "Nechta slayd kerakligini raqamda yozing (1 dan 25 gacha):")
 
 
 @router.message(SlideCreationState.waiting_for_custom_slide_count)
@@ -568,7 +594,7 @@ async def process_slide_count(callback: CallbackQuery, state: FSMContext):
     topic = data.get("topic", "")
 
     text = f"📌 <b>Mavzu:</b> <i>{topic}</i>\n📊 <b>Slaydlar:</b> {count} ta\n\n🎨 <b>Dizayn va ranglar mavzusini tanlang:</b>"
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=theme_selection_keyboard())
+    await safe_edit_or_answer(callback.message, text, reply_markup=theme_selection_keyboard())
 
 
 @router.callback_query(F.data.startswith("theme_"), SlideCreationState.waiting_for_theme)
@@ -654,20 +680,12 @@ async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext)
             f"💡 <i>Har bir slayd ostida va alohida faylda spiker nutqi (gapirish matni) mavjud.</i>"
         )
 
-        action_kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
-                [InlineKeyboardButton(text="👤 Profil", callback_data="btn_profile")],
-            ]
-        )
-
         # PowerPoint faylni yuborish
         pptx_doc = FSInputFile(pptx_file_path, filename=os.path.basename(pptx_file_path))
         await callback.message.answer_document(
             document=pptx_doc,
             caption=caption,
             parse_mode="HTML",
-            reply_markup=action_kb,
         )
 
         # Spiker nutqi faylini yuborish
@@ -682,6 +700,24 @@ async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext)
             await status_msg.delete()
         except Exception:
             pass
+
+        # Navigatsiya tugmalari bilan yakuniy xabar
+        finish_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
+                [
+                    InlineKeyboardButton(text="👤 Profil & Limit", callback_data="btn_profile"),
+                    InlineKeyboardButton(text="💎 Tariflar", callback_data="btn_tariffs"),
+                ],
+                [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
+            ]
+        )
+        await callback.message.answer(
+            "✨ <b>Taqdimot muvaffaqiyatli yetkazildi!</b>\n\n"
+            "Yana yangi slayd yaratish yoki balansingizni tekshirish uchun quyidagi tugmalardan birini bosing:",
+            parse_mode="HTML",
+            reply_markup=finish_kb,
+        )
 
     except Exception as e:
         logger.error(f"Slayd yaratishda xatolik: {e}")

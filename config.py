@@ -8,8 +8,8 @@ load_dotenv()
 BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
-# Gemini model to use - using current modern Gemini model
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.8-flash")
+# Gemini model to use - using fast, reliable and modern Gemini model
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
 ADMIN_ID = os.getenv("ADMIN_ID", "").strip()
 
 
