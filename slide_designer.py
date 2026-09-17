@@ -56,8 +56,22 @@ def create_presentation_file(
         elif slide_data.layout == "conclusion":
             _render_conclusion_slide(slide, slide_data, theme, idx + 1, total_slides)
         else:
-            # Standart cards_grid layout
             _render_cards_grid_slide(slide, slide_data, theme, idx + 1, total_slides)
+
+        # Spiker nutqini PowerPoint Notes bo'limiga biriktirish
+
+        if getattr(slide_data, "speaker_speech", None) or getattr(slide_data, "speaker_notes", None):
+            try:
+                notes_slide = slide.notes_slide
+                tf_n = notes_slide.notes_text_frame
+                text_parts = []
+                if getattr(slide_data, "speaker_speech", None):
+                    text_parts.append(f"🎤 SPIKER NUTQI:\n{slide_data.speaker_speech}")
+                if getattr(slide_data, "speaker_notes", None):
+                    text_parts.append(f"💡 ESLATMA:\n{slide_data.speaker_notes}")
+                tf_n.text = "\n\n".join(text_parts)
+            except Exception:
+                pass
 
     # Chiqish fayli nomini belgilash
     if not output_path:
@@ -68,6 +82,36 @@ def create_presentation_file(
 
     prs.save(output_path)
     return output_path
+
+
+def generate_speaker_speech_file(content: PresentationContent, output_path: Optional[str] = None) -> str:
+    """Spiker uchun so'zma-so'z to'liq nutq matnini alohida faylga saqlaydi."""
+    lines = [
+        f"🎤 TAQDIMOT UCHUN TO'LIQ SPIKER NUTQI (MA'RUZA MATNI)",
+        f"Mavzu: {content.topic}",
+        f"Slaydlar soni: {len(content.slides)} ta",
+        "=" * 60,
+        "",
+    ]
+    for i, s in enumerate(content.slides):
+        lines.append(f"📌 {i+1}-SLAYD: {s.title.upper()}")
+        if s.subtitle:
+            lines.append(f"   Izoh: {s.subtitle}")
+        speech = getattr(s, "speaker_speech", None) or getattr(s, "speaker_notes", None) or "Ushbu slayddagi faktlar va asosiy tushunchalarni tinglovchilarga tushuntirib bering."
+        lines.append(f"   💬 Nutq matni: \"{speech}\"")
+        lines.append("-" * 50)
+        lines.append("")
+
+    if not output_path:
+        safe_topic = "".join(c for c in content.topic if c.isalnum() or c in (" ", "_", "-")).strip()
+        safe_topic = safe_topic[:30].replace(" ", "_") or "speech"
+        os.makedirs("generated_slides", exist_ok=True)
+        output_path = os.path.join("generated_slides", f"{safe_topic}_nutq.txt")
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        f.write("\n".join(lines))
+    return output_path
+
 
 
 def _render_slide_background(slide, theme: ColorTheme, width, height):

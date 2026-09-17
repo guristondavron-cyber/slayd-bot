@@ -58,6 +58,7 @@ class SlideContent(BaseModel):
     # conclusion / call to action
     highlight_takeaway: Optional[str] = Field(default=None, description="Asosiy chaqiriq, yakuniy xulosa yoki iqtibos")
     speaker_notes: Optional[str] = Field(default=None, description="Spiker uchun qisqa maslahat")
+    speaker_speech: Optional[str] = Field(default=None, description="Spiker sahnada tinglovchilarga aytib berishi kerak bo'lgan 2-4 jumlalik jonli, ta'sirchan nutq matni")
 
 
 class PresentationContent(BaseModel):
@@ -90,7 +91,9 @@ MUHIM QOIDALAR:
 3. Matnlar ixcham, lo'nda va vizual idrok qilishga oson bo'lsin. Uzun paragraflar yozmang!
 4. StatItem raqamlari qisqa va ta'sirchan bo'lsin (masalan: "85%", "+140%", "$2.4M", "24/7", "10x").
 5. Jami roppa-rosa {slide_count} ta slayd yarating.
+6. Har bir slayd uchun 'speaker_speech' maydoniga spiker tinglovchilarga nima deb so'zlashi kerak bo'lgan 2-3 jumlalik jonli nutq matnini yozing.
 """
+
 
 
 def _clean_json_string(text: str) -> str:

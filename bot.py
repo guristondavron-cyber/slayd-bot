@@ -32,9 +32,9 @@ from gemini_service import (
     generate_mock_presentation,
     PresentationContent,
 )
-from slide_designer import create_presentation_file
+from slide_designer import create_presentation_file, generate_speaker_speech_file
 
-# Logging sozlamalari
+# Logging
 log_file = os.path.join(os.path.dirname(__file__), "bot.log")
 handlers = [logging.FileHandler(log_file, encoding="utf-8")]
 if sys.stdout is not None:
@@ -55,7 +55,12 @@ class SlideCreationState(StatesGroup):
     waiting_for_topic = State()
     waiting_for_language = State()
     waiting_for_slide_count = State()
+    waiting_for_custom_slide_count = State()
     waiting_for_theme = State()
+
+
+class UserPromoState(StatesGroup):
+    waiting_for_promo = State()
 
 
 class AdminState(StatesGroup):
@@ -64,15 +69,14 @@ class AdminState(StatesGroup):
     waiting_for_referral_reward = State()
     waiting_for_broadcast_message = State()
     waiting_for_give_limit = State()
+    waiting_for_new_admin = State()
+    waiting_for_create_promo = State()
+    waiting_for_payment_info = State()
 
 
 def is_admin(user_id: int) -> bool:
-    """Foydalanuvchi admin ekanligini tekshiradi."""
-    uid_str = str(user_id)
-    if config.ADMIN_ID and uid_str == config.ADMIN_ID:
-        return True
-    admin_setting = database.get_setting("admin_ids", "")
-    return uid_str in [x.strip() for x in admin_setting.split(",") if x.strip()]
+    """Foydalanuvchi asosiy yoki 2-admin ekanligini tekshiradi."""
+    return database.is_user_admin(user_id, config.ADMIN_ID)
 
 
 async def safe_callback_answer(callback: CallbackQuery, text: str = None, show_alert: bool = False):
@@ -83,7 +87,6 @@ async def safe_callback_answer(callback: CallbackQuery, text: str = None, show_a
 
 
 async def check_channel_subscription(bot: Bot, user_id: int) -> Tuple[bool, str]:
-    """Majburiy a'zolik kanalini tekshiradi."""
     if is_admin(user_id):
         return True, ""
 
@@ -101,7 +104,7 @@ async def check_channel_subscription(bot: Bot, user_id: int) -> Tuple[bool, str]
         return False, channel
     except Exception as e:
         logger.warning(f"Kanal obunasini tekshirishda ogohlantirish: {e}")
-        return True, channel  # Agar bot kanalda admin bo'lmasa, foydalanuvchini to'xtatmaymiz
+        return True, channel
 
 
 def channel_sub_keyboard(channel: str) -> InlineKeyboardMarkup:
@@ -120,6 +123,10 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
         [
             InlineKeyboardButton(text="👤 Profil & Referal", callback_data="btn_profile"),
+            InlineKeyboardButton(text="🎟 Promokod", callback_data="btn_enter_promo"),
+        ],
+        [
+            InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs"),
             InlineKeyboardButton(text="🎨 Mavzular", callback_data="btn_themes"),
         ],
         [InlineKeyboardButton(text="ℹ️ Bot Haqida & Qo'llanma", callback_data="btn_help")],
@@ -146,12 +153,16 @@ def slide_count_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [
-                InlineKeyboardButton(text="3 ta (Ekspress)", callback_data="count_3"),
-                InlineKeyboardButton(text="5 ta (Tavsiya)", callback_data="count_5"),
+                InlineKeyboardButton(text="5 ta (Ekspress)", callback_data="count_5"),
+                InlineKeyboardButton(text="8 ta (Standart)", callback_data="count_8"),
             ],
             [
-                InlineKeyboardButton(text="7 ta (Kengaytirilgan)", callback_data="count_7"),
-                InlineKeyboardButton(text="10 ta (Katta taqdimot)", callback_data="count_10"),
+                InlineKeyboardButton(text="12 ta (Kengaytirilgan)", callback_data="count_12"),
+                InlineKeyboardButton(text="15 ta (Katta)", callback_data="count_15"),
+            ],
+            [
+                InlineKeyboardButton(text="20 ta (Diplom / Loyiha)", callback_data="count_20"),
+                InlineKeyboardButton(text="✍️ Boshqa son kiritish", callback_data="count_custom"),
             ],
             [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
         ]
@@ -176,10 +187,22 @@ def theme_selection_keyboard() -> InlineKeyboardMarkup:
 def admin_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="📊 Jonli Statistika", callback_data="adm_stats")],
-            [InlineKeyboardButton(text="📢 Majburiy Kanal Sozlamasi", callback_data="adm_channel")],
-            [InlineKeyboardButton(text="🎁 Limit va Referal Bonusi", callback_data="adm_limits")],
-            [InlineKeyboardButton(text="✉️ Foydalanuvchilarga Xabar (Rassilka)", callback_data="adm_broadcast")],
+            [
+                InlineKeyboardButton(text="📊 Jonli Statistika", callback_data="adm_stats"),
+                InlineKeyboardButton(text="📢 Majburiy Kanal", callback_data="adm_channel"),
+            ],
+            [
+                InlineKeyboardButton(text="👥 Adminlar Boshqaruvi", callback_data="adm_admins"),
+                InlineKeyboardButton(text="🎁 Foydalanuvchiga Limit Berish", callback_data="adm_give_limit"),
+            ],
+            [
+                InlineKeyboardButton(text="🎟 Promokod Yaratish", callback_data="adm_create_promo"),
+                InlineKeyboardButton(text="⚙️ Standart Limit & Bonus", callback_data="adm_limits"),
+            ],
+            [
+                InlineKeyboardButton(text="💳 Karta & To'lov Matni", callback_data="adm_payment_info"),
+                InlineKeyboardButton(text="✉️ Rassilka (Xabar tarqatish)", callback_data="adm_broadcast"),
+            ],
             [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
         ]
     )
@@ -192,7 +215,6 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
     first_name = message.from_user.first_name or "Foydalanuvchi"
     username = message.from_user.username or ""
 
-    # Referal ID tekshirish (?start=ref_12345)
     referrer_id = None
     if command.args and command.args.startswith("ref_"):
         try:
@@ -209,7 +231,6 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
         referrer_id=referrer_id,
     )
 
-    # Agar do'sti taklif qilgan bo'lsa, taklif qiluvchiga xabar yuborish
     if rewarded_ref:
         try:
             await bot.send_message(
@@ -217,14 +238,13 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
                 text=(
                     f"🎉 <b>Ajoyib yangilik!</b>\n\n"
                     f"Sizning referal havolangiz orqali yangi do'stingiz (<b>{first_name}</b>) botga qo'shildi!\n"
-                    f"🎁 Hisobingizga <b>+{reward_amount} ta bepul slayd</b> qo'shildi."
+                    f"🎁 Hisobingizga <b>+{reward_amount} ta bepul slayd</b> taqdim etildi."
                 ),
                 parse_mode="HTML",
             )
         except Exception:
             pass
 
-    # Majburiy kanal tekshiruvi
     is_subbed, channel = await check_channel_subscription(bot, user_id)
     if not is_subbed:
         await message.answer(
@@ -236,12 +256,15 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
         )
         return
 
+    vip_badge = " [VIP CHEKSIZ]" if user_dict.get("is_vip") else ""
+    balance_text = "Cheksiz (VIP)" if user_dict.get("is_vip") else f"{user_dict['slides_left']} ta"
+
     text = (
-        f"Assalomu alaykum, <b>{first_name}</b>!\n\n"
-        f"Men <b>Gemini AI Slayd Yaratuvchi</b> botman.\n"
-        f"Siz menga ixtiyoriy <b>mavzu</b>, <b>PDF/Word hujjati</b> yoki hatto <b>ovozli xabar</b> yuboring — "
-        f"men esa professional 16:9 formatdagi PowerPoint (.pptx) taqdimot tayyorlab beraman.\n\n"
-        f"📊 <b>Sizning balansingiz:</b> {user_dict['slides_left']} ta bepul taqdimot\n\n"
+        f"Assalomu alaykum, <b>{first_name}</b>{vip_badge}!\n\n"
+        f"Men <b>Professional Gemini AI Slayd Yaratuvchi</b> botman.\n"
+        f"Siz menga ixtiyoriy <b>mavzu</b>, <b>PDF/Word hujjati</b> yoki <b>ovozli xabar</b> yuboring — "
+        f"men 16:9 formatdagi PowerPoint taqdimot va uning <b>spiker nutqi matnini</b> tayyorlab beraman.\n\n"
+        f"📊 <b>Sizning balansingiz:</b> <b>{balance_text}</b>\n\n"
         f"Boshlash uchun quyidagi tugmani bosing:"
     )
     await message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard(user_id))
@@ -254,10 +277,10 @@ async def cb_check_subscription(callback: CallbackQuery, bot: Bot):
     if is_subbed:
         await safe_callback_answer(callback, "A'zolik tasdiqlandi! Rahmat.")
         user = database.get_user(user_id)
-        slides = user["slides_left"] if user else 3
+        bal = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left']} ta"
         text = (
             f"✅ <b>Obuna muvaffaqiyatli tasdiqlandi!</b>\n\n"
-            f"📊 <b>Sizning balansingiz:</b> {slides} ta bepul taqdimot.\n\n"
+            f"📊 <b>Sizning balansingiz:</b> {bal}\n\n"
             f"Slayd yaratish uchun quyidagi tugmani bosing:"
         )
         await callback.message.edit_text(text, parse_mode="HTML", reply_markup=main_menu_keyboard(user_id))
@@ -279,22 +302,22 @@ async def cb_profile(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
     user = database.get_user(user_id)
     if not user:
-        user = {"slides_left": 3, "referrals_count": 0}
+        user = {"slides_left": 3, "referrals_count": 0, "is_vip": 0}
 
     bot_info = await bot.get_me()
     ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
     reward = database.get_setting("referral_reward", "2")
+    status_text = "💎 VIP Cheksiz" if user.get("is_vip") else f"<b>{user['slides_left']} ta</b>"
 
     text = (
         f"👤 <b>Sizning Profilingiz</b>\n\n"
         f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
-        f"📊 <b>Qolgan slaydlar:</b> <b>{user['slides_left']} ta</b>\n"
+        f"💎 <b>Status:</b> {status_text}\n"
         f"👥 <b>Taklif qilingan do'stlar:</b> <b>{user['referrals_count']} ta</b>\n\n"
         f"🎁 <b>Referal Dasturi:</b>\n"
         f"Do'stlaringizni taklif qiling va har bir do'stingiz uchun <b>+{reward} ta bepul slayd</b> oling!\n\n"
-        f"🔗 <b>Sizning shaxsiy havolangiz:</b>\n"
-        f"<code>{ref_link}</code>\n\n"
-        f"<i>Havolani do'stlaringizga yoki guruhlarga ulashing!</i>"
+        f"🔗 <b>Sizning taklif havolangiz:</b>\n"
+        f"<code>{ref_link}</code>"
     )
 
     kb = InlineKeyboardMarkup(
@@ -302,14 +325,72 @@ async def cb_profile(callback: CallbackQuery, bot: Bot):
             [
                 InlineKeyboardButton(
                     text="↗️ Do'stlarga ulashish",
-                    url=f"https://t.me/share/url?url={ref_link}&text=Ajoyib%20Gemini%20AI%20Slayd%20Generator%20boti!%20Sinab%20ko'ring:",
+                    url=f"https://t.me/share/url?url={ref_link}&text=Sun'iy%20intellektda%20bepul%20slaydlar%20yasang!",
                 )
             ],
-            [InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide")],
+            [
+                InlineKeyboardButton(text="🎟 Promokod kiritish", callback_data="btn_enter_promo"),
+                InlineKeyboardButton(text="💎 Tariflar", callback_data="btn_tariffs"),
+            ],
             [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
         ]
     )
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb, disable_web_page_preview=True)
+
+
+# ------------------ PROMOKOD ISHLATISH ------------------
+@router.callback_query(F.data == "btn_enter_promo")
+async def cb_prompt_promo(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    await state.set_state(UserPromoState.waiting_for_promo)
+    text = (
+        "🎟 <b>Promokodni kiriting:</b>\n\n"
+        "Kanallarda e'lon qilingan maxsus kodni yozib yuboring:\n\n"
+        "Bekor qilish uchun /cancel yozing."
+    )
+    await callback.message.edit_text(text, parse_mode="HTML")
+
+
+@router.message(UserPromoState.waiting_for_promo)
+async def process_user_promo(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if text.startswith("/cancel"):
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=main_menu_keyboard(message.from_user.id))
+        return
+
+    success, msg, bonus = database.use_promocode(message.from_user.id, text)
+    await state.clear()
+    await message.answer(msg, reply_markup=main_menu_keyboard(message.from_user.id))
+
+
+# ------------------ TARIFLAR VA TO'LOV ------------------
+@router.callback_query(F.data == "btn_tariffs")
+async def cb_tariffs(callback: CallbackQuery):
+    await safe_callback_answer(callback)
+    payment_info = database.get_setting("payment_info", "To'lov ma'lumotlari admin tomonidan belgilanadi.")
+
+    text = (
+        "💎 <b>Qo'shimcha Slaydlar Uchun Tariflar</b>\n\n"
+        "Agar bepul slaydlaringiz tugagan bo'lsa, qulay paketlardan birini tanlashingiz mumkin:\n\n"
+        "🥉 <b>Standart Paket:</b>\n"
+        "• 10 ta slayd yaratish — <b>9 000 so'm</b>\n\n"
+        "🥈 <b>Talaba Paketi (Mashhur):</b>\n"
+        "• 30 ta slayd yaratish — <b>19 000 so'm</b>\n\n"
+        "🥇 <b>VIP Cheksiz (1 oy):</b>\n"
+        "• Cheksiz taqdimotlar yaratish — <b>39 000 so'm</b>\n\n"
+        "━━━━━━━━━━━━━━\n"
+        f"<b>To'lov ma'lumotlari:</b>\n{payment_info}\n\n"
+        "<i>To'lov qilgach, chekni adminga yuboring, hisobingiz darhol to'ldiriladi!</i>"
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide")],
+            [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+        ]
+    )
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ------------------ SLAYD YARATISH OQIMI ------------------
@@ -318,7 +399,6 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await safe_callback_answer(callback)
     user_id = callback.from_user.id
 
-    # Obunani tekshirish
     is_subbed, channel = await check_channel_subscription(bot, user_id)
     if not is_subbed:
         await callback.message.edit_text(
@@ -328,26 +408,20 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
         )
         return
 
-    # Limitni tekshirish
     if not database.has_slides_left(user_id, is_admin(user_id)):
         reward = database.get_setting("referral_reward", "2")
         bot_info = await bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
         text = (
             f"⚠️ <b>Sizning bepul slaydlar limitingiz tugadi!</b>\n\n"
-            f"Yana yangi taqdimotlar yaratish uchun do'stlaringizni taklif qiling.\n"
-            f"Har bir taklif qilingan do'st uchun sizga <b>+{reward} ta bepul slayd</b> beriladi!\n\n"
-            f"🔗 <b>Sizning taklif havolangiz:</b>\n"
-            f"<code>{ref_link}</code>"
+            f"Do'stlaringizni taklif qilib, har bir do'stingiz uchun <b>+{reward} ta bepul slayd</b> oling:\n"
+            f"<code>{ref_link}</code>\n\n"
+            f"Yoki 💎 <b>Tariflar</b> bo'limidan qo'shimcha paket sotib oling."
         )
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
-                [
-                    InlineKeyboardButton(
-                        text="↗️ Do'stlarga ulashish",
-                        url=f"https://t.me/share/url?url={ref_link}&text=Sun'iy%20intellektda%20bepul%20slaydlar%20yasang:",
-                    )
-                ],
+                [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
+                [InlineKeyboardButton(text="🎟 Promokod kiritish", callback_data="btn_enter_promo")],
                 [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
             ]
         )
@@ -357,19 +431,18 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await state.set_state(SlideCreationState.waiting_for_topic)
     text = (
         "✍️ <b>Taqdimot mavzusini kiriting:</b>\n\n"
-        "<i>Siz 3 xil usulda mavzu berishingiz mumkin:</i>\n"
-        "1. Matn ko'rinishida yozing (masalan: <i>'Sun'iy intellekt kelajagi'</i>)\n"
-        "2. 🎙 <b>Ovozli xabar</b> yuboring (mavzuni aytib bering)\n"
-        "3. 📄 <b>PDF yoki Word (.docx)</b> hujjat yuboring (bot hujjatdan slayd yasaydi)\n\n"
-        "Mavzuni yozing yoki fayl yuboring:"
+        "<i>3 xil usulda berishingiz mumkin:</i>\n"
+        "1. Mavzuni yozing (masalan: <i>'Sun'iy intellekt kelajagi'</i>)\n"
+        "2. 🎙 <b>Ovozli xabar</b> yuboring\n"
+        "3. 📄 <b>PDF yoki Word (.docx)</b> hujjat yuboring\n\n"
+        "Mavzuni yozing yoki fayl tashlang:"
     )
     await callback.message.edit_text(text, parse_mode="HTML")
 
 
-# Ovozli xabarni qabul qilish
 @router.message(F.voice, SlideCreationState.waiting_for_topic)
 async def process_voice_topic(message: Message, state: FSMContext, bot: Bot):
-    status_msg = await message.answer("🎙 <i>Ovozli xabar tahlil qilinmoqda...</i>", parse_mode="HTML")
+    status_msg = await message.answer("🎙 <i>Ovoz tahlil qilinmoqda...</i>", parse_mode="HTML")
     try:
         file_info = await bot.get_file(message.voice.file_id)
         voice_io = await bot.download_file(file_info.file_path)
@@ -383,18 +456,13 @@ async def process_voice_topic(message: Message, state: FSMContext, bot: Bot):
         await state.update_data(topic=topic, is_doc=False)
         await state.set_state(SlideCreationState.waiting_for_language)
 
-        text = (
-            f"🎙 <b>Ovozingizdan aniqlangan mavzu:</b>\n"
-            f"👉 <i>{topic}</i>\n\n"
-            f"Endi taqdimot <b>qaysi tilda</b> tuzilishini tanlang:"
-        )
+        text = f"🎙 <b>Aniqlangan mavzu:</b> <i>{topic}</i>\n\nTaqdimot <b>qaysi tilda</b> tuzilsin?"
         await message.answer(text, parse_mode="HTML", reply_markup=language_selection_keyboard())
     except Exception as e:
-        logger.error(f"Ovoz yuklashda xatolik: {e}")
-        await status_msg.edit_text("Ovozni o'qishda xatolik yuz berdi. Iltimos, matn ko'rinishida yozib yuboring.")
+        logger.error(f"Ovozda xatolik: {e}")
+        await status_msg.edit_text("Ovozni o'qishda xatolik yuz berdi. Matn ko'rinishida yozib yuboring.")
 
 
-# Hujjat (PDF/Word/TXT) qabul qilish
 @router.message(F.document, SlideCreationState.waiting_for_topic)
 async def process_document_topic(message: Message, state: FSMContext, bot: Bot):
     doc = message.document
@@ -404,7 +472,7 @@ async def process_document_topic(message: Message, state: FSMContext, bot: Bot):
         await message.answer("Iltimos, faqat PDF, Word (.docx) yoki TXT formatdagi fayl yuboring:")
         return
 
-    status_msg = await message.answer("📄 <i>Hujjat o'qilmoqda va tahlil qilinmoqda...</i>", parse_mode="HTML")
+    status_msg = await message.answer("📄 <i>Hujjat tahlil qilinmoqda...</i>", parse_mode="HTML")
     try:
         file_info = await bot.get_file(doc.file_id)
         file_io = await bot.download_file(file_info.file_path)
@@ -427,18 +495,13 @@ async def process_document_topic(message: Message, state: FSMContext, bot: Bot):
         await state.update_data(topic=topic, doc_text=extracted_text, is_doc=True)
         await state.set_state(SlideCreationState.waiting_for_language)
 
-        text = (
-            f"📄 <b>Hujjat muvaffaqiyatli qabul qilindi:</b> <i>{doc.file_name}</i>\n"
-            f"Matn hajmi: {len(extracted_text)} ta belgi.\n\n"
-            f"Taqdimot <b>qaysi tilda</b> tuzilsin?"
-        )
+        text = f"📄 <b>Hujjat qabul qilindi:</b> <i>{doc.file_name}</i>\n\nTaqdimot <b>qaysi tilda</b> tuzilsin?"
         await message.answer(text, parse_mode="HTML", reply_markup=language_selection_keyboard())
     except Exception as e:
-        logger.error(f"Hujjat yuklashda xatolik: {e}")
+        logger.error(f"Faylda xatolik: {e}")
         await status_msg.edit_text("Faylni yuklashda xatolik yuz berdi. Qaytadan urinib ko'ring.")
 
 
-# Matnli mavzuni qabul qilish
 @router.message(SlideCreationState.waiting_for_topic)
 async def process_text_topic(message: Message, state: FSMContext):
     topic = (message.text or "").strip()
@@ -463,11 +526,35 @@ async def process_language(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     topic = data.get("topic", "")
 
-    text = (
-        f"📌 <b>Mavzu:</b> <i>{topic}</i>\n\n"
-        f"Taqdimotda <b>nechta slayd</b> bo'lishini tanlang:"
-    )
+    text = f"📌 <b>Mavzu:</b> <i>{topic}</i>\n\nTaqdimotda <b>nechta slayd</b> bo'lishini tanlang:"
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=slide_count_keyboard())
+
+
+@router.callback_query(F.data == "count_custom", SlideCreationState.waiting_for_slide_count)
+async def process_custom_count_prompt(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    await state.set_state(SlideCreationState.waiting_for_custom_slide_count)
+    await callback.message.edit_text("Nechta slayd kerakligini raqamda yozing (1 dan 25 gacha):")
+
+
+@router.message(SlideCreationState.waiting_for_custom_slide_count)
+async def process_custom_count_input(message: Message, state: FSMContext):
+    try:
+        count = int(message.text.strip())
+        if not (1 <= count <= 25):
+            await message.answer("Iltimos, 1 dan 25 gacha bo'lgan son yozing:")
+            return
+    except ValueError:
+        await message.answer("Faqat butun son kiriting:")
+        return
+
+    await state.update_data(slide_count=count)
+    await state.set_state(SlideCreationState.waiting_for_theme)
+
+    data = await state.get_data()
+    topic = data.get("topic", "")
+    text = f"📌 <b>Mavzu:</b> <i>{topic}</i>\n📊 <b>Slaydlar soni:</b> {count} ta\n\n🎨 <b>Dizayn va ranglar mavzusini tanlang:</b>"
+    await message.answer(text, parse_mode="HTML", reply_markup=theme_selection_keyboard())
 
 
 @router.callback_query(F.data.startswith("count_"), SlideCreationState.waiting_for_slide_count)
@@ -480,11 +567,7 @@ async def process_slide_count(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     topic = data.get("topic", "")
 
-    text = (
-        f"📌 <b>Mavzu:</b> <i>{topic}</i>\n"
-        f"📊 <b>Slaydlar:</b> {count} ta\n\n"
-        f"🎨 <b>Dizayn va ranglar mavzusini tanlang:</b>"
-    )
+    text = f"📌 <b>Mavzu:</b> <i>{topic}</i>\n📊 <b>Slaydlar:</b> {count} ta\n\n🎨 <b>Dizayn va ranglar mavzusini tanlang:</b>"
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=theme_selection_keyboard())
 
 
@@ -505,8 +588,9 @@ async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext)
     loading_text = (
         f"⏳ <b>Taqdimot tayyorlanmoqda...</b>\n\n"
         f"📌 <b>Mavzu:</b> {topic}\n"
-        f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n\n"
-        f"1️⃣ <i>Sun'iy intellekt orqali reja va professional matnlar tuzilmoqda...</i>"
+        f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n"
+        f"📊 <b>Hajmi:</b> {slide_count} ta slayd\n\n"
+        f"1️⃣ <i>AI orqali reja, matnlar va spiker nutqi tuzilmoqda...</i>"
     )
     try:
         status_msg = await callback.message.edit_text(loading_text, parse_mode="HTML")
@@ -537,71 +621,84 @@ async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext)
                 f"⏳ <b>Taqdimot tayyorlanmoqda...</b>\n\n"
                 f"📌 <b>Mavzu:</b> {topic}\n"
                 f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n\n"
-                f"✅ <i>Kontent tayyorlandi!</i>\n"
-                f"2️⃣ <i>16:9 formatda zamonaviy grafikalar va kartochkalar chizilmoqda...</i>",
+                f"✅ <i>Kontent va nutq tayyorlandi!</i>\n"
+                f"2️⃣ <i>16:9 formatda grafikalar chizilib, spiker nutqi biriktirilmoqda...</i>",
                 parse_mode="HTML",
             )
         except Exception:
             pass
 
+        # 1. PowerPoint faylini yaratish
         pptx_file_path = create_presentation_file(
             content=presentation_content,
             theme_key=theme_key,
         )
 
-        # Foydalanuvchi limitini kamaytirish va statistikaga yozish
+        # 2. Spiker nutqi faylini yaratish
+        speech_file_path = generate_speaker_speech_file(presentation_content)
+
         user_id = callback.from_user.id
         database.use_slide(user_id, is_admin(user_id))
         database.record_presentation(user_id, topic, theme_key, len(presentation_content.slides))
 
         user = database.get_user(user_id)
-        left = user["slides_left"] if user else 0
+        left = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left']} ta"
 
         caption = (
-            f"🎉 <b>Taqdimotingiz muvaffaqiyatli tayyorlandi!</b>\n\n"
+            f"🎉 <b>Taqdimotingiz tayyor!</b>\n\n"
             f"📌 <b>Mavzu:</b> {topic}\n"
             f"📊 <b>Slaydlar:</b> {len(presentation_content.slides)} ta\n"
             f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n"
             f"📁 <b>Format:</b> PowerPoint (.pptx)\n"
-            f"💎 <b>Qolgan balansingiz:</b> {left} ta slayd\n\n"
-            f"💡 <i>Faylni PowerPoint, Google Slides yoki WPS Office orqali to'liq ochishingiz va tahrirlashingiz mumkin.</i>"
+            f"💎 <b>Qolgan balansingiz:</b> {left}\n\n"
+            f"💡 <i>Har bir slayd ostida va alohida faylda spiker nutqi (gapirish matni) mavjud.</i>"
         )
 
         action_kb = InlineKeyboardMarkup(
             inline_keyboard=[
                 [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
-                [InlineKeyboardButton(text="👤 Profil & Ko'proq Limit Olish", callback_data="btn_profile")],
+                [InlineKeyboardButton(text="👤 Profil", callback_data="btn_profile")],
             ]
         )
 
-        document = FSInputFile(pptx_file_path, filename=os.path.basename(pptx_file_path))
+        # PowerPoint faylni yuborish
+        pptx_doc = FSInputFile(pptx_file_path, filename=os.path.basename(pptx_file_path))
         await callback.message.answer_document(
-            document=document,
+            document=pptx_doc,
             caption=caption,
             parse_mode="HTML",
             reply_markup=action_kb,
         )
+
+        # Spiker nutqi faylini yuborish
+        speech_doc = FSInputFile(speech_file_path, filename=os.path.basename(speech_file_path))
+        await callback.message.answer_document(
+            document=speech_doc,
+            caption="🎤 <b>Taqdimotda so'zlash uchun to'liq Spiker Nutqi (Ma'ruza matni)</b>",
+            parse_mode="HTML",
+        )
+
         try:
             await status_msg.delete()
         except Exception:
             pass
 
     except Exception as e:
-        logger.error(f"Slayd chizishda xatolik: {e}")
+        logger.error(f"Slayd yaratishda xatolik: {e}")
         await callback.message.answer(
-            "❌ Slayd faylini yaratishda texnik xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
+            "❌ Slayd tayyorlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
             reply_markup=main_menu_keyboard(callback.from_user.id),
         )
 
 
-# ------------------ TELEGRAMDAN BOSHQARILADIGAN ADMIN PANEL ------------------
+# ------------------ TELEGRAMDAN TO'LIQ BOSHQARILADIGAN ADMIN PANEL ------------------
 @router.message(Command("admin"))
 @router.callback_query(F.data == "btn_admin_panel")
 async def cmd_admin_panel(event: Any, state: FSMContext):
     user_id = event.from_user.id
     if not is_admin(user_id):
         if isinstance(event, Message):
-            await event.answer("Kechirasiz, ushbu buyruq faqat bot egasi uchun.")
+            await event.answer("Kechirasiz, ushbu buyruq faqat bot adminlari uchun.")
         return
 
     await state.clear()
@@ -619,12 +716,12 @@ async def cmd_admin_panel(event: Any, state: FSMContext):
         f"• Jami foydalanuvchilar: <b>{stats['total_users']}</b> ta\n"
         f"• Bugun qo'shilganlar: <b>{stats['today_users']}</b> ta\n"
         f"• Jami yaratilgan slaydlar: <b>{stats['total_presentations']}</b> ta\n"
-        f"• Do'stlar orqali qo'shilganlar: <b>{stats['total_referrals']}</b> ta\n\n"
+        f"• Qo'shimcha adminlar: <b>{stats.get('total_subadmins', 0)}</b> ta\n\n"
         f"⚙️ <b>Joriy Sozlamalar:</b>\n"
         f"• Majburiy kanal: <code>{req_chan or 'O''rnatilmagan'}</code>\n"
         f"• Boshlang'ich limit: <b>{init_lim} ta</b>\n"
         f"• Referal bonusi: <b>+{ref_rew} ta</b>\n\n"
-        "Quyidagi tugmalar orqali sozlamalarni bevosita Telegramdan o'zgartirishingiz mumkin:"
+        "Quyidagi bo'limlardan birini tanlang:"
     )
 
     if isinstance(event, CallbackQuery):
@@ -633,25 +730,322 @@ async def cmd_admin_panel(event: Any, state: FSMContext):
         await event.answer(text, parse_mode="HTML", reply_markup=admin_menu_keyboard())
 
 
-@router.callback_query(F.data == "adm_stats")
-async def cb_admin_stats(callback: CallbackQuery):
+@router.message(Command("give"))
+async def cmd_give(message: Message, command: CommandObject, bot: Bot):
+    if not is_admin(message.from_user.id):
+        return
+    args = (command.args or "").split()
+    if len(args) != 2:
+        await message.answer(
+            "Format: <code>/give USER_ID MIQDOR</code>\n\n"
+            "<i>Misollar:</i>\n"
+            "• <code>/give 12345678 50</code> — 50 ta slayd berish\n"
+            "• <code>/give 12345678 vip</code> — Cheksiz VIP status berish",
+            parse_mode="HTML",
+        )
+        return
+    try:
+        target_uid = int(args[0])
+    except ValueError:
+        await message.answer("User ID faqat raqam bo'lishi kerak!")
+        return
+
+    val = args[1].lower()
+    if val == "vip":
+        database.set_user_vip(target_uid, True)
+        await message.answer(f"✅ Foydalanuvchi <code>{target_uid}</code> ga <b>VIP CHEKSIZ</b> status berildi!", parse_mode="HTML")
+        try:
+            await bot.send_message(
+                chat_id=target_uid,
+                text="🎉 <b>Tabriklaymiz!</b> Admin tomonidan sizga <b>VIP CHEKSIZ</b> status taqdim etildi! Endi xohlagancha bepul taqdimot yaratishingiz mumkin.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            count = int(val)
+            database.add_slides_to_user(target_uid, count)
+            await message.answer(f"✅ Foydalanuvchi <code>{target_uid}</code> ga <b>+{count} ta slayd</b> qo'shildi!", parse_mode="HTML")
+            try:
+                await bot.send_message(
+                    chat_id=target_uid,
+                    text=f"🎉 <b>Ajoyib yangilik!</b> Admin tomonidan hisobingizga <b>+{count} ta bepul slayd</b> taqdim etildi!",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+        except ValueError:
+            await message.answer("Slaydlar soni raqam yoki 'vip' bo'lishi kerak!")
+
+
+@router.message(Command("addadmin"))
+async def cmd_add_admin(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    args = (command.args or "").strip()
+    if not args:
+        await message.answer("Format: <code>/addadmin USER_ID</code>\n<i>Masalan:</i> <code>/addadmin 12345678</code>", parse_mode="HTML")
+        return
+    try:
+        target_uid = int(args)
+        database.add_admin(user_id=target_uid, added_by=message.from_user.id, note="Yordamchi Admin")
+        await message.answer(f"✅ <code>{target_uid}</code> muvaffaqiyatli <b>Admin</b> etib tayinlandi!", parse_mode="HTML")
+    except ValueError:
+        await message.answer("User ID faqat raqam bo'lishi kerak!")
+
+
+@router.message(Command("removeadmin"))
+async def cmd_remove_admin(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    args = (command.args or "").strip()
+    if not args:
+        await message.answer("Format: <code>/removeadmin USER_ID</code>\n<i>Masalan:</i> <code>/removeadmin 12345678</code>", parse_mode="HTML")
+        return
+    try:
+        target_uid = int(args)
+        database.remove_admin(target_uid)
+        await message.answer(f"✅ <code>{target_uid}</code> adminlikdan olindi.", parse_mode="HTML")
+    except ValueError:
+        await message.answer("User ID faqat raqam bo'lishi kerak!")
+
+
+# 1. Adminlar boshqaruvi (2-admin qo'shish va o'chirish)
+@router.callback_query(F.data == "adm_admins")
+async def cb_admin_list(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
         return
     await safe_callback_answer(callback)
-    stats = database.get_global_stats()
+    admins = database.get_all_admins()
+    
+    admin_list_text = ""
+    for a in admins:
+        admin_list_text += f"• ID: <code>{a['user_id']}</code> ({a.get('note') or 'Admin'})\n"
+    if not admin_list_text:
+        admin_list_text = "<i>Hozircha qo'shimcha adminlar yo'q.</i>\n"
+
     text = (
-        "📊 <b>Kengaytirilgan Statistika</b>\n\n"
-        f"👥 Jami foydalanuvchilar: <b>{stats['total_users']} ta</b>\n"
-        f"📈 Bugun qo'shilganlar: <b>{stats['today_users']} ta</b>\n"
-        f"📁 Yaratilgan jami taqdimotlar: <b>{stats['total_presentations']} ta</b>\n"
-        f"📅 Bugun yaratilgan taqdimotlar: <b>{stats['today_presentations']} ta</b>\n"
-        f"🔗 Referal takliflar soni: <b>{stats['total_referrals']} ta</b>\n\n"
-        f"<i>Baza holati: Faol (SQLite)</i>"
+        "👥 <b>Adminlar Boshqaruvi</b>\n\n"
+        f"Asosiy admin ID: <code>{config.ADMIN_ID}</code>\n\n"
+        f"<b>Qo'shimcha adminlar ro'yxati:</b>\n{admin_list_text}\n"
+        "Yangi 2-admin qo'shish uchun pastdagi tugmani bosing:"
     )
-    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin menyu", callback_data="btn_admin_panel")]])
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="➕ Yangi Admin Qo'shish", callback_data="adm_add_admin_prompt")],
+            [InlineKeyboardButton(text="🗑 Adminni O'chirish", callback_data="adm_remove_admin_prompt")],
+            [InlineKeyboardButton(text="🔙 Admin menyu", callback_data="btn_admin_panel")],
+        ]
+    )
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
 
+@router.callback_query(F.data == "adm_add_admin_prompt")
+async def cb_prompt_add_admin(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    await state.set_state(AdminState.waiting_for_new_admin)
+    await callback.message.edit_text(
+        "➕ <b>Yangi Admin Qo'shish:</b>\n\n"
+        "Yangi admin qilmoqchi bo'lgan foydalanuvchining <b>Telegram ID raqamini</b> yuboring:\n"
+        "<i>(Masalan: 123456789)</i>\n\n"
+        "Bekor qilish uchun /cancel yozing.",
+        parse_mode="HTML",
+    )
+
+
+@router.message(AdminState.waiting_for_new_admin)
+async def process_new_admin(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    text = (message.text or "").strip()
+    if text.startswith("/cancel"):
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu_keyboard())
+        return
+    try:
+        target_uid = int(text)
+        database.add_admin(user_id=target_uid, added_by=message.from_user.id, note="Yordamchi Admin")
+        await state.clear()
+        await message.answer(f"✅ <code>{target_uid}</code> muvaffaqiyatli <b>Admin</b> etib tayinlandi!", parse_mode="HTML", reply_markup=admin_menu_keyboard())
+    except ValueError:
+        await message.answer("Iltimos, faqat raqamdan iborat Telegram ID yuboring:")
+
+
+@router.callback_query(F.data == "adm_remove_admin_prompt")
+async def cb_prompt_remove_admin(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    admins = database.get_all_admins()
+    if not admins:
+        await callback.message.answer("O'chirish uchun qo'shimcha adminlar yo'q.", reply_markup=admin_menu_keyboard())
+        return
+
+    buttons = []
+    for a in admins:
+        buttons.append([InlineKeyboardButton(text=f"❌ O'chirish: {a['user_id']}", callback_data=f"del_adm_{a['user_id']}")])
+    buttons.append([InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_admin_panel")])
+    await callback.message.edit_text("Qaysi adminni o'chirmoqchisiz?", reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+
+@router.callback_query(F.data.startswith("del_adm_"))
+async def cb_delete_admin(callback: CallbackQuery):
+    target_uid = int(callback.data.split("del_adm_")[1])
+    database.remove_admin(target_uid)
+    await safe_callback_answer(callback, "Admin o'chirildi!")
+    await callback.message.edit_text(f"✅ <code>{target_uid}</code> adminlikdan olindi.", parse_mode="HTML", reply_markup=admin_menu_keyboard())
+
+
+# 2. Foydalanuvchiga limit va VIP berish
+@router.callback_query(F.data == "adm_give_limit")
+async def cb_prompt_give_limit(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback)
+    await state.set_state(AdminState.waiting_for_give_limit)
+    text = (
+        "🎁 <b>Foydalanuvchiga Limit yoki VIP Berish:</b>\n\n"
+        "Foydalanuvchi ID raqamini va beriladigan slaydlar sonini probel bilan yuboring:\n\n"
+        "<i>Misollar:</i>\n"
+        "• <code>123456789 50</code> — 50 ta slayd qo'shish\n"
+        "• <code>123456789 vip</code> — Cheksiz VIP status berish\n\n"
+        "Bekor qilish uchun /cancel yozing."
+    )
+    await callback.message.edit_text(text, parse_mode="HTML")
+
+
+@router.message(AdminState.waiting_for_give_limit)
+async def process_give_limit(message: Message, state: FSMContext, bot: Bot):
+    if not is_admin(message.from_user.id):
+        return
+    text = (message.text or "").strip()
+    if text.startswith("/cancel"):
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu_keyboard())
+        return
+
+    parts = text.split()
+    if len(parts) != 2:
+        await message.answer("Format: <code>USER_ID SONI</code> (masalan: <code>12345678 50</code> yoki <code>12345678 vip</code>):", parse_mode="HTML")
+        return
+
+    try:
+        target_uid = int(parts[0])
+    except ValueError:
+        await message.answer("ID raqami faqat son bo'lishi kerak!")
+        return
+
+    val = parts[1].lower()
+    await state.clear()
+
+    if val == "vip":
+        database.set_user_vip(target_uid, True)
+        await message.answer(f"✅ Foydalanuvchi <code>{target_uid}</code> ga <b>VIP CHEKSIZ</b> status berildi!", parse_mode="HTML", reply_markup=admin_menu_keyboard())
+        try:
+            await bot.send_message(
+                chat_id=target_uid,
+                text="🎉 <b>Tabriklaymiz!</b> Admin tomonidan sizga <b>VIP CHEKSIZ</b> status taqdim etildi! Endi xohlagancha bepul taqdimot yaratishingiz mumkin.",
+                parse_mode="HTML",
+            )
+        except Exception:
+            pass
+    else:
+        try:
+            count = int(val)
+            database.add_slides_to_user(target_uid, count)
+            await message.answer(f"✅ Foydalanuvchi <code>{target_uid}</code> ga <b>+{count} ta slayd</b> qo'shildi!", parse_mode="HTML", reply_markup=admin_menu_keyboard())
+            try:
+                await bot.send_message(
+                    chat_id=target_uid,
+                    text=f"🎉 <b>Ajoyib yangilik!</b> Admin tomonidan hisobingizga <b>+{count} ta bepul slayd</b> taqdim etildi!",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+        except ValueError:
+            await message.answer("Slaydlar soni raqam bo'lishi kerak!")
+
+
+# 3. Promokod yaratish
+@router.callback_query(F.data == "adm_create_promo")
+async def cb_prompt_create_promo(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback)
+    await state.set_state(AdminState.waiting_for_create_promo)
+    promos = database.get_all_promocodes()
+    promo_list = "\n".join([f"• <code>{p['code']}</code> (+{p['bonus_slides']} ta, qoldi: {p['activations_left']} ta)" for p in promos])
+
+    text = (
+        "🎟 <b>Yangi Promokod Yaratish</b>\n\n"
+        f"<b>Mavjud promokodlar:</b>\n{promo_list or 'Promokodlar yo''q'}\n\n"
+        "Yangi promokod yaratish uchun quyidagi formatda yuboring:\n"
+        "<code>KOD_NOMI BONUS_SONI AKTIVATSIYALAR</code>\n\n"
+        "<i>Masalan:</i> <code>YANGI2026 5 100</code>\n"
+        "(YANGI2026 kodi orqali 100 kishiga +5 tadan slayd beriladi)\n\n"
+        "Bekor qilish uchun /cancel yozing."
+    )
+    await callback.message.edit_text(text, parse_mode="HTML")
+
+
+@router.message(AdminState.waiting_for_create_promo)
+async def process_create_promo(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    text = (message.text or "").strip()
+    if text.startswith("/cancel"):
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu_keyboard())
+        return
+
+    parts = text.split()
+    if len(parts) != 3:
+        await message.answer("Format: <code>KOD BONUS SONI</code> (masalan: <code>START 5 50</code>):", parse_mode="HTML")
+        return
+
+    code = parts[0].upper()
+    try:
+        bonus = int(parts[1])
+        acts = int(parts[2])
+        database.create_promocode(code, bonus, acts)
+        await state.clear()
+        await message.answer(f"✅ <b>{code}</b> promokodi muvaffaqiyatli yaratildi!\nBonus: +{bonus} ta | Aktivatsiyalar: {acts} ta", parse_mode="HTML", reply_markup=admin_menu_keyboard())
+    except ValueError:
+        await message.answer("Bonus va aktivatsiyalar soni butun raqam bo'lishi kerak!")
+
+
+# 4. Karta va to'lov matni
+@router.callback_query(F.data == "adm_payment_info")
+async def cb_prompt_payment_info(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback)
+    await state.set_state(AdminState.waiting_for_payment_info)
+    current = database.get_setting("payment_info", "")
+    text = (
+        "💳 <b>Karta Raqami va To'lov Ma'lumotlarini Sozlash:</b>\n\n"
+        f"<b>Joriy matn:</b>\n{current}\n\n"
+        "Yangi to'lov matnini va karta raqamingizni yozib yuboring:\n\n"
+        "Bekor qilish uchun /cancel yozing."
+    )
+    await callback.message.edit_text(text, parse_mode="HTML")
+
+
+@router.message(AdminState.waiting_for_payment_info)
+async def process_payment_info(message: Message, state: FSMContext):
+    if not is_admin(message.from_user.id):
+        return
+    text = (message.text or "").strip()
+    if text.startswith("/cancel"):
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu_keyboard())
+        return
+
+    database.set_setting("payment_info", text)
+    await state.clear()
+    await message.answer("✅ To'lov ma'lumotlari muvaffaqiyatli yangilandi!", reply_markup=admin_menu_keyboard())
+
+
+# 5. Kanal sozlamasi
 @router.callback_query(F.data == "adm_channel")
 async def cb_admin_channel(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
@@ -664,8 +1058,7 @@ async def cb_admin_channel(callback: CallbackQuery, state: FSMContext):
         "📢 <b>Majburiy Obuna Kanalini Sozlash</b>\n\n"
         f"Joriy kanal: <code>{current or 'O''rnatilmagan (O''chiq)'}</code>\n\n"
         "Yangi kanal username'ini yuboring (masalan: <code>@mening_kanalim</code>).\n"
-        "Majburiy obunani <b>o'chirib qo'yish</b> uchun <code>ochirish</code> deb yozing.\n\n"
-        "<i>Eslatma: Bot ushbu kanalda admin bo'lishi kerak!</i>\n"
+        "O'chirib qo'yish uchun <code>ochirish</code> deb yozing.\n\n"
         "Bekor qilish uchun /cancel yozing."
     )
     await callback.message.edit_text(text, parse_mode="HTML")
@@ -695,6 +1088,7 @@ async def process_set_channel(message: Message, state: FSMContext):
     await message.answer(f"✅ Majburiy obuna kanali <b>{text}</b> ga o'rnatildi!", parse_mode="HTML", reply_markup=admin_menu_keyboard())
 
 
+# 6. Standart limit va referal bonusi
 @router.callback_query(F.data == "adm_limits")
 async def cb_admin_limits(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
@@ -704,9 +1098,9 @@ async def cb_admin_limits(callback: CallbackQuery, state: FSMContext):
     ref_rew = database.get_setting("referral_reward", "2")
 
     text = (
-        "🎁 <b>Limit va Bonuslarni O'zgartirish</b>\n\n"
+        "⚙️ <b>Standart Limit va Bonuslarni O'zgartirish</b>\n\n"
         f"1. Yangi foydalanuvchiga beriladigan slaydlar: <b>{init_lim} ta</b>\n"
-        f"2. Taklif qilingan har bir do'st uchun bonus: <b>+{ref_rew} ta</b>\n\n"
+        f"2. Har bir taklif qilingan do'st uchun bonus: <b>+{ref_rew} ta</b>\n\n"
         "Qaysi birini o'zgartirmoqchisiz?"
     )
     kb = InlineKeyboardMarkup(
@@ -723,7 +1117,7 @@ async def cb_admin_limits(callback: CallbackQuery, state: FSMContext):
 async def cb_set_init_limit(callback: CallbackQuery, state: FSMContext):
     await safe_callback_answer(callback)
     await state.set_state(AdminState.waiting_for_initial_limit)
-    await callback.message.edit_text("Yangi foydalanuvchilar uchun slaydlar sonini raqamda yuboring (masalan: 5):")
+    await callback.message.edit_text("Yangi foydalanuvchilar uchun standart slaydlar sonini yuboring (masalan: 5):")
 
 
 @router.message(AdminState.waiting_for_initial_limit)
@@ -759,7 +1153,7 @@ async def process_ref_reward(message: Message, state: FSMContext):
         await message.answer("Iltimos, butun raqam yozing:")
 
 
-# ------------------ RASSILKA (XABAR TARQATISH) ------------------
+# 7. Rassilka
 @router.callback_query(F.data == "adm_broadcast")
 async def cb_admin_broadcast(callback: CallbackQuery, state: FSMContext):
     if not is_admin(callback.from_user.id):
@@ -768,7 +1162,7 @@ async def cb_admin_broadcast(callback: CallbackQuery, state: FSMContext):
     await state.set_state(AdminState.waiting_for_broadcast_message)
     text = (
         "✉️ <b>Barcha foydalanuvchilarga xabar tarqatish (Rassilka)</b>\n\n"
-        "Foydalanuvchilarga yuborilishi kerak bo'lgan xabarni yozing (matn, rasm yoki video bo'lishi mumkin).\n\n"
+        "Foydalanuvchilarga yuborilishi kerak bo'lgan xabarni yuboring (matn, rasm yoki video).\n\n"
         "Bekor qilish uchun /cancel yozing."
     )
     await callback.message.edit_text(text, parse_mode="HTML")
@@ -784,7 +1178,7 @@ async def process_broadcast(message: Message, state: FSMContext, bot: Bot):
         return
 
     await state.clear()
-    status_msg = await message.answer("⏳ <i>Xabarlar tarqatilmoqda, kuting...</i>", parse_mode="HTML")
+    status_msg = await message.answer("⏳ <i>Xabarlar tarqatilmoqda...</i>", parse_mode="HTML")
 
     user_ids = database.get_all_user_ids()
     sent = 0
@@ -794,40 +1188,63 @@ async def process_broadcast(message: Message, state: FSMContext, bot: Bot):
         try:
             await message.copy_to(chat_id=uid)
             sent += 1
-            await asyncio.sleep(0.05)  # Telegram flood limitiga tushmaslik uchun
+            await asyncio.sleep(0.05)
         except Exception:
             failed += 1
 
     await status_msg.edit_text(
-        f"✅ <b>Rassilka yakunlandi!</b>\n\n"
-        f"• Yetkazildi: <b>{sent} ta</b>\n"
-        f"• Yetkazilmadi (bloklangan): <b>{failed} ta</b>",
+        f"✅ <b>Rassilka yakunlandi!</b>\n\n• Yetkazildi: <b>{sent} ta</b>\n• Yetkazilmadi: <b>{failed} ta</b>",
         parse_mode="HTML",
         reply_markup=admin_menu_keyboard(),
     )
 
 
-@router.message(Command("addlimit"))
-async def cmd_add_limit(message: Message):
-    """Admin buyrug'i: /addlimit 12345678 10"""
+# 8. Tezkor buyruqlar
+@router.message(Command("give"))
+async def cmd_give_quick(message: Message, bot: Bot):
+    """Format: /give 12345678 50 yoki /give 12345678 vip"""
     if not is_admin(message.from_user.id):
         return
     parts = (message.text or "").split()
     if len(parts) != 3:
-        await message.answer("Format: <code>/addlimit USER_ID SONI</code>\nMasalan: <code>/addlimit 12345678 5</code>", parse_mode="HTML")
+        await message.answer("Format: <code>/give USER_ID SONI_YOKI_VIP</code>\nMisollar:\n• <code>/give 12345678 50</code>\n• <code>/give 12345678 vip</code>", parse_mode="HTML")
         return
     try:
         target_uid = int(parts[1])
-        add_count = int(parts[2])
-        database.add_slides_to_user(target_uid, add_count)
-        await message.answer(f"✅ Foydalanuvchi <code>{target_uid}</code> ga <b>+{add_count} ta slayd</b> qo'shildi!", parse_mode="HTML")
+        val = parts[2].lower()
+        if val == "vip":
+            database.set_user_vip(target_uid, True)
+            await message.answer(f"✅ <code>{target_uid}</code> ga <b>VIP CHEKSIZ</b> status berildi!", parse_mode="HTML")
+        else:
+            cnt = int(val)
+            database.add_slides_to_user(target_uid, cnt)
+            await message.answer(f"✅ <code>{target_uid}</code> ga <b>+{cnt} ta slayd</b> qo'shildi!", parse_mode="HTML")
     except ValueError:
-        await message.answer("ID va Soni butun son bo'lishi kerak!")
+        await message.answer("ID va Soni to'g'ri raqam bo'lishi kerak!")
 
 
 @router.message(Command("myid"))
 async def cmd_myid(message: Message):
     await message.answer(f"Sizning Telegram ID raqamingiz: <code>{message.from_user.id}</code>", parse_mode="HTML")
+
+
+@router.callback_query(F.data == "adm_stats")
+async def cb_admin_stats(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback)
+    stats = database.get_global_stats()
+    text = (
+        "📊 <b>Kengaytirilgan Statistika</b>\n\n"
+        f"👥 Jami foydalanuvchilar: <b>{stats['total_users']} ta</b>\n"
+        f"📈 Bugun qo'shilganlar: <b>{stats['today_users']} ta</b>\n"
+        f"📁 Yaratilgan jami taqdimotlar: <b>{stats['total_presentations']} ta</b>\n"
+        f"📅 Bugun yaratilgan taqdimotlar: <b>{stats['today_presentations']} ta</b>\n"
+        f"🔗 Referal takliflar soni: <b>{stats['total_referrals']} ta</b>\n"
+        f"👑 Qo'shimcha adminlar: <b>{stats.get('total_subadmins', 0)} ta</b>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Admin menyu", callback_data="btn_admin_panel")]])
+    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data == "btn_themes")
@@ -855,14 +1272,14 @@ async def cb_help(callback: CallbackQuery):
     await safe_callback_answer(callback)
     text = (
         "ℹ️ <b>Slayd Yaratuvchi Bot Haqida</b>\n\n"
-        "Ushbu bot eng ilg'or sun'iy intellekt texnologiyalari asosida ishlaydi "
-        "va professional darajadagi taqdimotlarni bir necha soniyada tayyorlab beradi.\n\n"
+        "Ushbu bot eng ilg'or Gemini AI texnologiyalari asosida ishlaydi.\n\n"
         "<b>Imkoniyatlar:</b>\n"
-        "• 16:9 Widescreen zamonaviy taqdimotlar\n"
+        "• 16:9 Widescreen zamonaviy taqdimotlar (20 tagacha slayd)\n"
         "• Matn, 🎙 Ovozli xabar yoki 📄 PDF/Word fayllardan slayd yasash\n"
-        "• Avtomatik vizual modullar: kartochkalar, infografika, raqamlar, solishtirish jadvallari, timeline bosqichlari\n"
+        "• 🎤 <b>Har bir slayd uchun tayyor Spiker nutqi (so'zlash matni)</b>\n"
         "• 3 ta tilda yaratish (O'zbekcha, Ruscha, Inglizcha)\n"
-        "• Do'stlarni taklif qilib qo'shimcha bepul limitlar olish\n\n"
+        "• Do'stlarni taklif qilib qo'shimcha bepul limitlar olish\n"
+        "• Maxsus promokodlardan foydalanish\n\n"
         "Boshlash uchun pastdagi tugmani bosing:"
     )
     kb = InlineKeyboardMarkup(
@@ -879,7 +1296,6 @@ async def handle_ping(request):
 
 
 async def start_web_server():
-    """Render.com bepul Web Service rejimida portni tinglash uchun yengil server."""
     try:
         port = int(os.getenv("PORT", 8080))
         app = web.Application()
@@ -891,7 +1307,7 @@ async def start_web_server():
         await site.start()
         logger.info(f"Web server {port}-portda muvaffaqiyatli ishga tushdi.")
     except Exception as e:
-        logger.warning(f"Web server ogohlantirish (lokal muhitda bu normal): {e}")
+        logger.warning(f"Web server ogohlantirish: {e}")
 
 
 async def main():
@@ -900,7 +1316,6 @@ async def main():
         logger.warning("⚠️ DIQQAT: BOT_TOKEN .env faylida to'g'ri o'rnatilmagan!")
         return
 
-    # Render buluti uchun web serverni yoqish
     await start_web_server()
 
     bot = Bot(token=token)
