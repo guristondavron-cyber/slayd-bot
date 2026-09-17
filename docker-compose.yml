@@ -1,0 +1,11 @@
+services:
+  slide_bot:
+    build: .
+    container_name: telegram_slide_generator_bot
+    restart: always
+    env_file:
+      - .env
+    volumes:
+      - ./generated_slides:/app/generated_slides
+    environment:
+      - PYTHONUNBUFFERED=1
