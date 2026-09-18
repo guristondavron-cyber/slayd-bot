@@ -9,7 +9,7 @@ BOT_TOKEN = os.getenv("BOT_TOKEN", "").strip()
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 
 # Gemini model to use - using fast, reliable and modern Gemini model
-GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-3.5-flash")
+GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 ADMIN_ID = os.getenv("ADMIN_ID", "").strip()
 
 
@@ -199,3 +199,38 @@ DEFAULT_THEME = "dark_tech"
 DEFAULT_SLIDE_COUNT = 5
 MAX_SLIDE_COUNT = 25
 MIN_SLIDE_COUNT = 1
+
+# Taqdimotning ixtisoslashgan rejimlari
+PRESENTATION_MODES: Dict[str, Dict[str, str]] = {
+    "general": {
+        "id": "general",
+        "name": "⚡️ Umumiy / Erkin taqdimot",
+        "desc": "Universal, har qanday mavzuga mos erkin va qiziqarli taqdimot.",
+        "icon": "⚡️",
+    },
+    "education": {
+        "id": "education",
+        "name": "🎓 Ta'lim & Referat (Maktab / Talaba)",
+        "desc": "Ilmiy tushunchalar, nazariya, amaliy tahlil va adabiyotlar bilan akademik rejim.",
+        "icon": "🎓",
+    },
+    "business": {
+        "id": "business",
+        "name": "💼 Biznes & Pitch Deck (Startap / Investor)",
+        "desc": "Muammo, yechim, bozor hajmi, biznes model, raqobat va moliyaviy rejalar.",
+        "icon": "💼",
+    },
+    "analytics": {
+        "id": "analytics",
+        "name": "📊 Tahliliy Hisobot & Statistika",
+        "desc": "Raqamlar, KPIlar, solishtirmalar, dinamika va xulosalarga qaratilgan chuqur hisobot.",
+        "icon": "📊",
+    },
+}
+
+ASSETS_DIR = os.path.join(os.path.dirname(__file__), "assets")
+IMAGE_CACHE_DIR = os.path.join(os.path.dirname(__file__), "image_cache")
+GENERATED_DIR = os.path.join(os.path.dirname(__file__), "generated_slides")
+
+for d in [ASSETS_DIR, IMAGE_CACHE_DIR, GENERATED_DIR]:
+    os.makedirs(d, exist_ok=True)

@@ -68,6 +68,9 @@ class SlideContent(BaseModel):
     # matrix_2x2 uchun
     matrix_items: Optional[List[CardItem]] = Field(default=None, description="2x2 matritsa uchun roppa-rosa 4 ta karta")
 
+    # Rasm va vizualizatsiya
+    image_keyword: Optional[str] = Field(default=None, description="Ushbu slayd mavzusiga mos inglizcha 2-4 so'zdan iborat aniq foto qidiruv so'zi (masalan: 'artificial intelligence robot', 'cotton harvest machine')")
+
     # conclusion / call to action
     highlight_takeaway: Optional[str] = Field(default=None, description="Asosiy chaqiriq, yakuniy xulosa yoki iqtibos")
     speaker_notes: Optional[str] = Field(default=None, description="Spiker uchun qisqa maslahat")
@@ -80,7 +83,13 @@ class PresentationContent(BaseModel):
     slides: List[SlideContent] = Field(description="Belgilangan miqdordagi slaydlar ketma-ketligi")
 
 
-def build_system_prompt(topic: str, slide_count: int, language: str = "uz", with_speech: bool = True) -> str:
+def build_system_prompt(
+    topic: str,
+    slide_count: int,
+    language: str = "uz",
+    with_speech: bool = True,
+    mode: str = "general",
+) -> str:
     lang_instruction = {
         "uz": "Barcha matnlar, sarlavhalar va tushuntirishlar o'zbek adabiy tilida (lotin alifbosida), juda chiroyli va professional uslubda bo'lsin.",
         "ru": "Все тексты, заголовки и описания должны быть на грамотном русском языке.",
@@ -93,9 +102,33 @@ def build_system_prompt(topic: str, slide_count: int, language: str = "uz", with
         else "Spiker nutqi talab qilinmaydi, 'speaker_speech' maydonini bo'sh (null) qoldiring."
     )
 
-    return f"""Siz dunyo darajasidagi professional taqdimotlar (Executive Pitch Decks & Keynotes) dizayneri va biznes konsultantisiz.
-Sizning vazifangiz quyidagi mavzu bo'yicha ROPPA-ROSA {slide_count} TA SLAYDDAN IBORAT to'liq, mukammal va har bir slaydi bir-biridan butunlay farq qiluvchi taqdimot kontentini tayyorlash:
+    mode_guidelines = {
+        "education": (
+            "TAQDIMOT YO'NALISHI: TA'LIM, DARSLIK VA AKADEMIK REFERAT.\n"
+            "- Taqdimot strukturasi: Mavzuning dolzarbligi va maqsadi -> Ilmiy-nazariy asoslar va qonuniyatlar -> Asosiy tushunchalar va terminlar -> Amaliy tahlil va misollar -> Solishtirma jadval -> Xulosa va tavsiyalar -> Foydalanilgan manbalar va adabiyotlar.\n"
+            "- Talabalar va tinglovchilar uchun chuqur ilmiy asoslangan, faktlarga boy akademik tilda yozing."
+        ),
+        "business": (
+            "TAQDIMOT YO'NALISHI: BIZNES, STARTAP VA INVESTOR PITCH DECK.\n"
+            "- Taqdimot strukturasi: Bozor muammosi (Pain Point) -> Innovatsion yechim (Solution) -> Bozor hajmi (TAM/SAM/SOM) -> Biznes va monetizatsiya modeli -> Raqobatchilar va ustunliklar -> Rivojlanish xaritasi (Roadmap) -> Jamoa va investitsiya talabi (The Ask).\n"
+            "- Kuchli iqtisodiy, moliyaviy va strategik atamalar, o'sish ko'rsatkichlaridan foydalaning."
+        ),
+        "analytics": (
+            "TAQDIMOT YO'NALISHI: TAHLILIY HISOBOT VA STATISTIKA.\n"
+            "- Taqdimot strukturasi: Asosiy strategik KPIlar -> O'sish dinamikasi va tahliliy trendlar -> Qiyosiy ko'rsatkichlar -> Xavf-xatarlar (Risk Management) -> Tahliliy prognoz va operatsion qarorlar.\n"
+            "- Aniq foizlar, nisbatlar, jadvallar va chuqur tahliliy faktlarga asoslaning."
+        ),
+        "general": (
+            "TAQDIMOT YO'NALISHI: UMUMIY VA IJODIY EXECUTIVE TAQDIMOT.\n"
+            "- Mavzuning eng qiziqarli, zamonaviy va ta'sirchan jihatlarini ochib bering."
+        ),
+    }.get(mode, "Executive taqdimot tayyorlang.")
+
+    return f"""Siz dunyo darajasidagi professional taqdimotlar bo'yicha oliy toifali mutaxassis, tadqiqotchi va biznes konsultantisiz.
+Sizning vazifangiz quyidagi mavzu bo'yicha ROPPA-ROSA {slide_count} TA SLAYDDAN IBORAT to'liq, mukammal, chuqur mazmunli va har bir slaydi bir-biridan butunlay farq qiluvchi taqdimot kontentini tayyorlash:
 MAVZU: "{topic}"
+
+{mode_guidelines}
 
 TIL TALABI:
 {lang_instruction}
@@ -103,19 +136,24 @@ TIL TALABI:
 MUHIM QAT'IY TALABLAR:
 1. JAMI SLAYDLAR SONI: 'slides' ro'yxatida ANIQ VA ROPPA-ROSA {slide_count} TA SLAYD BO'LISHI SHART!
    - Agar {slide_count} tadan kam (masalan 5 ta yoki 6 ta) slayd bersangiz, topshiriq qabul qilinmaydi.
-   - Slaydlar massivida (slides ro'yxatida) aniq {slide_count} ta element bo'lishi MAJBUR!
+   - Slaydlar massivida aniq {slide_count} ta element bo'lishi MAJBUR!
 
-2. HAR BIR SLAYD UNIKAL VA TURFA XIL BO'LISHI SHART (BIR XIL DIZAYN BO'LMASIN!):
+2. QAT'IY QOIDA — SOHAVIY CHUQUR MA'LUMOT VA ANIQ FAKTLAR (HECH QANDAY SHABLON BO'LMASIN!):
+   - 'Asosiy tushuncha', 'Omil 1', 'Loyiha rejasi', 'Strategiya' kabi umumiy, quruq va qolip so'zlarni ISHLATISH QAT'IYAN MAN ETILADI!
+   - Har bir slaydda aynan "{topic}" mavzusiga to'g'ridan-to'g'ri tegishli bo'lgan real atamalar, aniq sanalar, ilmiy yoki biznes terminologiya, real statistik raqamlar, amaliy misollar va chuqur tahliliy ma'lumotlar berilsin.
+   - Har bir slayd uchun 'image_keyword' maydoniga slayd mavzusiga mos sifatli fotosurat topish uchun inglizcha 2-4 ta aniq so'zdan iborat qidiruv birikmasi yozing (masalan: 'cybersecurity firewall code', 'silk road architecture samarkand', 'solar power panel farm').
+
+3. HAR BIR SLAYD UNIKAL VA TURFA XIL BO'LISHI SHART (BIR XIL DIZAYN BO'LMASIN!):
    - Ketma-ket ikkita bir xil layout ISHLATMANG! Slaydlar almashib, ko'rgazmali va qiziqarli bo'lsin.
    - Mavjud layout turlaridan keng va xilma-xil foydalaning:
      * "title_slide" (faqat 1-slayd uchun muhtasham muqova)
-     * "cards_grid" (3 ta asosiy yo'nalish yoki tushuncha kartalari)
-     * "stats_metrics" (katta raqamlar, masalan '85%', '3.5x', '$12M', '24/7' bilan 4 ta statistika)
+     * "cards_grid" (3 ta asosiy sohaviy yo'nalish yoki tushuncha kartalari)
+     * "stats_metrics" (aniq katta raqamlar, masalan '85%', '3.5x', '$12M', '24/7' bilan 4 ta statistika)
      * "comparison" (muammo vs yechim, an'anaviy vs yangi yondashuv - 2 ta kontrast ustun)
      * "timeline_steps" (1-bosqich -> 2-bosqich -> 3-bosqich -> 4-bosqich yo'l xaritasi)
-     * "matrix_2x2" (4 ta burchakli matritsa yoki 4 ta asosiy ustun: 'matrix_items' maydonida 4 ta karta)
+     * "matrix_2x2" (4 ta burchakli matritsa: 'matrix_items' maydonida 4 ta karta)
      * "quote_highlight" (markaziy kuchli fikr yoki iqtibos: 'quote_text' va 'quote_author' maydonlari)
-     * "checklist_points" (3-5 ta tasdiqlangan amaliy tavsiya yoki qoida: 'checklist' maydoni)
+     * "checklist_points" (3-5 ta tasdiqlangan amaliy qoida yoki tamoyil: 'checklist' maydoni)
      * "conclusion" (oxirgi {slide_count}-slayd uchun yakuniy chaqiriq va natijalar)
 
 MATN VA NUTQ TALABLARI:
@@ -331,6 +369,7 @@ async def generate_presentation_with_gemini(
     slide_count: int = 5,
     language: str = "uz",
     with_speech: bool = True,
+    mode: str = "general",
     api_key: Optional[str] = None,
 ) -> PresentationContent:
     """Gemini API orqali ko'p modelli zanjir (fallback chain) bilan taqdimot generatsiya qiladi."""
@@ -341,13 +380,13 @@ async def generate_presentation_with_gemini(
         )
 
     client = genai.Client(api_key=key)
-    prompt = build_system_prompt(topic, slide_count, language, with_speech=with_speech)
+    prompt = build_system_prompt(topic, slide_count, language, with_speech=with_speech, mode=mode)
 
     candidate_models = [
         config.GEMINI_MODEL,
+        "gemini-2.5-flash",
         "gemini-3.5-flash",
         "gemini-3.8-flash",
-        "gemini-2.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -356,7 +395,7 @@ async def generate_presentation_with_gemini(
     last_error = None
     for model_name in models_to_try:
         try:
-            logger.info(f"Gemini {model_name} orqali {slide_count} ta slayd yaratilmoqda (nutq: {with_speech})...")
+            logger.info(f"Gemini {model_name} orqali {slide_count} ta slayd yaratilmoqda (rejim: {mode}, nutq: {with_speech})...")
             response = await client.aio.models.generate_content(
                 model=model_name,
                 contents=prompt,
@@ -434,22 +473,23 @@ async def generate_presentation_from_document(
     slide_count: int = 5,
     language: str = "uz",
     with_speech: bool = True,
+    mode: str = "general",
     api_key: Optional[str] = None,
 ) -> PresentationContent:
     """Foydalanuvchi yuklagan PDF yoki Word matni asosida slaydlar yaratadi."""
     key = api_key or config.GEMINI_API_KEY
     first_line = doc_text.splitlines()[0][:30] if doc_text else "Hujjat Tahlili"
     if not key:
-        return generate_mock_presentation(first_line, slide_count=slide_count, language=language, with_speech=with_speech)
+        return generate_mock_presentation(first_line, slide_count=slide_count, language=language, with_speech=with_speech, mode=mode)
 
     client = genai.Client(api_key=key)
     prompt = build_document_prompt(doc_text, slide_count, language, with_speech=with_speech)
 
     candidate_models = [
         config.GEMINI_MODEL,
+        "gemini-2.5-flash",
         "gemini-3.5-flash",
         "gemini-3.8-flash",
-        "gemini-2.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -473,10 +513,16 @@ async def generate_presentation_from_document(
             logger.warning(f"generate_presentation_from_document {model_name} fallback: {e}")
             continue
 
-    return generate_mock_presentation(first_line, slide_count=slide_count, language=language, with_speech=with_speech)
+    return generate_mock_presentation(first_line, slide_count=slide_count, language=language, with_speech=with_speech, mode=mode)
 
 
-def generate_mock_presentation(topic: str, slide_count: int = 5, language: str = "uz", with_speech: bool = True) -> PresentationContent:
+def generate_mock_presentation(
+    topic: str,
+    slide_count: int = 5,
+    language: str = "uz",
+    with_speech: bool = True,
+    mode: str = "general",
+) -> PresentationContent:
     """
     Offline sinov va API key yo'q holatlar uchun to'liq slide_count miqdoridagi turfa xil yuqori sifatli slaydlar.
     """

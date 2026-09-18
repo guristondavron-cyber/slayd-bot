@@ -1,4 +1,5 @@
 import asyncio
+import json
 import logging
 import os
 import sys
@@ -31,8 +32,15 @@ from gemini_service import (
     generate_presentation_from_document,
     generate_mock_presentation,
     PresentationContent,
+    SlideContent,
 )
-from slide_designer import create_presentation_file, generate_speaker_speech_file
+from slide_designer import (
+    create_presentation_file,
+    generate_speaker_speech_file,
+    generate_slide_preview_image,
+    generate_themes_showcase_image,
+    convert_pptx_to_pdf,
+)
 
 # Logging
 log_file = os.path.join(os.path.dirname(__file__), "bot.log")
@@ -52,7 +60,9 @@ router = Router()
 
 # FSM Holatlari
 class SlideCreationState(StatesGroup):
+    waiting_for_mode = State()
     waiting_for_topic = State()
+    waiting_for_author = State()
     waiting_for_language = State()
     waiting_for_slide_count = State()
     waiting_for_custom_slide_count = State()
@@ -150,17 +160,45 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
         [
             InlineKeyboardButton(text="👤 Profil & Referal", callback_data="btn_profile"),
-            InlineKeyboardButton(text="🎟 Promokod", callback_data="btn_enter_promo"),
+            InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus"),
         ],
         [
+            InlineKeyboardButton(text="🎟 Promokod", callback_data="btn_enter_promo"),
             InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs"),
-            InlineKeyboardButton(text="🎨 Mavzular", callback_data="btn_themes"),
         ],
-        [InlineKeyboardButton(text="ℹ️ Bot Haqida & Qo'llanma", callback_data="btn_help")],
+        [
+            InlineKeyboardButton(text="🎨 Mavzular Ko'rgazmasi", callback_data="btn_themes"),
+            InlineKeyboardButton(text="ℹ️ Bot Haqida", callback_data="btn_help"),
+        ],
     ]
     if is_admin(user_id):
         buttons.append([InlineKeyboardButton(text="👑 Admin Paneli", callback_data="btn_admin_panel")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def mode_selection_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🎓 Darslik / Referat", callback_data="mode_education"),
+                InlineKeyboardButton(text="💼 Biznes / Pitch Deck", callback_data="mode_business"),
+            ],
+            [
+                InlineKeyboardButton(text="📊 Tahliliy hisobot", callback_data="mode_analytics"),
+                InlineKeyboardButton(text="🚀 Erkin & Kreativ", callback_data="mode_general"),
+            ],
+            [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
+        ]
+    )
+
+
+def author_skip_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏩ O'tkazib yuborish (Muallifsiz)", callback_data="author_skip")],
+            [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
+        ]
+    )
 
 
 def language_selection_keyboard() -> InlineKeyboardMarkup:
@@ -196,11 +234,11 @@ def slide_count_keyboard() -> InlineKeyboardMarkup:
     )
 
 
-def theme_selection_keyboard() -> InlineKeyboardMarkup:
+def theme_selection_keyboard(prefix: str = "theme_") -> InlineKeyboardMarkup:
     buttons = []
     row = []
     for key, th in config.THEMES.items():
-        btn = InlineKeyboardButton(text=f"{th.emoji} {th.name}", callback_data=f"theme_{key}")
+        btn = InlineKeyboardButton(text=f"{th.emoji} {th.name}", callback_data=f"{prefix}{key}")
         row.append(btn)
         if len(row) == 2:
             buttons.append(row)
@@ -411,11 +449,11 @@ async def process_user_promo(message: Message, state: FSMContext):
 @router.callback_query(F.data == "btn_tariffs")
 async def cb_tariffs(callback: CallbackQuery):
     await safe_callback_answer(callback)
-    payment_info = database.get_setting("payment_info", "To'lov ma'lumotlari admin tomonidan belgilanadi.")
+    payment_info = database.get_setting("payment_info", "Karta raqami: 8600 **** **** **** (Admin belgilaydi)")
 
     text = (
         "💎 <b>Qo'shimcha Slaydlar Uchun Tariflar</b>\n\n"
-        "Agar bepul slaydlaringiz tugagan bo'lsa, qulay paketlardan birini tanlashingiz mumkin:\n\n"
+        "Agar bepul slaydlaringiz tugagan bo'lsa, quyidagi qulay paketlardan birini tanlashingiz mumkin:\n\n"
         "🥉 <b>Standart Paket:</b>\n"
         "• 10 ta slayd yaratish — <b>9 000 so'm</b>\n\n"
         "🥈 <b>Talaba Paketi (Mashhur):</b>\n"
@@ -423,13 +461,15 @@ async def cb_tariffs(callback: CallbackQuery):
         "🥇 <b>VIP Cheksiz (1 oy):</b>\n"
         "• Cheksiz taqdimotlar yaratish — <b>39 000 so'm</b>\n\n"
         "━━━━━━━━━━━━━━\n"
-        f"<b>To'lov ma'lumotlari:</b>\n{payment_info}\n\n"
-        "<i>To'lov qilgach, chekni adminga yuboring, hisobingiz darhol to'ldiriladi!</i>"
+        "💳 <b>To'lov usullari (Click & Payme):</b>\n"
+        f"{payment_info}\n\n"
+        "<i>To'lov qilgach, chek yoki skrinshotni adminga yuboring, hisobingiz 1 daqiqa ichida to'ldiriladi!</i>"
     )
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide")],
+            [InlineKeyboardButton(text="🎟 Promokod kiritish", callback_data="btn_enter_promo")],
             [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
         ]
     )
@@ -457,12 +497,14 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
         ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
         text = (
             f"⚠️ <b>Sizning bepul slaydlar limitingiz tugadi!</b>\n\n"
-            f"Do'stlaringizni taklif qilib, har bir do'stingiz uchun <b>+{reward} ta bepul slayd</b> oling:\n"
+            f"🎁 <b>Har kuni bepul bonus:</b> Bosh menyudagi «🎁 Kunlik Bonus» tugmasini bosing!\n"
+            f"👥 Yoki do'stlaringizni taklif qilib, har biri uchun <b>+{reward} ta bepul slayd</b> oling:\n"
             f"<code>{ref_link}</code>\n\n"
-            f"Yoki 💎 <b>Tariflar</b> bo'limidan qo'shimcha paket sotib oling."
+            f"Yoki 💎 <b>Tariflar</b> bo'limidan qulay paket sotib oling."
         )
         kb = InlineKeyboardMarkup(
             inline_keyboard=[
+                [InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus")],
                 [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
                 [InlineKeyboardButton(text="🎟 Promokod kiritish", callback_data="btn_enter_promo")],
                 [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
@@ -471,9 +513,32 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
         await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
         return
 
-    await state.set_state(SlideCreationState.waiting_for_topic)
+    await state.set_state(SlideCreationState.waiting_for_mode)
     text = (
-        "✍️ <b>Taqdimot mavzusini kiriting:</b>\n\n"
+        "🎯 <b>Taqdimot yo'nalishini (formatini) tanlang:</b>\n\n"
+        "Sun'iy intellekt taqdimot rejasini va mazmunini qaysi uslubda tuzsin?"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=mode_selection_keyboard())
+
+
+@router.callback_query(F.data.startswith("mode_"), SlideCreationState.waiting_for_mode)
+async def process_mode_selected(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    mode = callback.data.split("mode_")[1]
+    await state.update_data(mode=mode)
+    await state.set_state(SlideCreationState.waiting_for_topic)
+
+    mode_names = {
+        "education": "🎓 Darslik / Referat / Ilmiy ish",
+        "business": "💼 Biznes / Pitch Deck / Startap",
+        "analytics": "📊 Tahliliy hisobot / SWOT / Tadqiqot",
+        "general": "🚀 Erkin & Kreativ taqdimot",
+    }
+    mode_title = mode_names.get(mode, "Erkin taqdimot")
+
+    text = (
+        f"🎯 <b>Tanlangan yo'nalish:</b> {mode_title}\n\n"
+        "✍️ <b>Endi taqdimot mavzusini kiriting:</b>\n\n"
         "<i>3 xil usulda berishingiz mumkin:</i>\n"
         "1. Mavzuni yozing (masalan: <i>'Sun'iy intellekt kelajagi'</i>)\n"
         "2. 🎙 <b>Ovozli xabar</b> yuboring\n"
@@ -497,10 +562,15 @@ async def process_voice_topic(message: Message, state: FSMContext, bot: Bot):
 
         await status_msg.delete()
         await state.update_data(topic=topic, is_doc=False)
-        await state.set_state(SlideCreationState.waiting_for_language)
+        await state.set_state(SlideCreationState.waiting_for_author)
 
-        text = f"🎙 <b>Aniqlangan mavzu:</b> <i>{topic}</i>\n\nTaqdimot <b>qaysi tilda</b> tuzilsin?"
-        await message.answer(text, parse_mode="HTML", reply_markup=language_selection_keyboard())
+        text = (
+            f"🎙 <b>Aniqlangan mavzu:</b> <i>{topic}</i>\n\n"
+            "✍️ <b>Slaydlar tagida muallif (tayyorlovchi) nomi chiqsinmi?</b>\n"
+            "<i>Masalan:</i> <code>Alisher Navoiy</code> yoki <code>Toshkent Davlat Universiteti</code>\n\n"
+            "Ismingizni yozing yoki o'tkazib yuboring:"
+        )
+        await message.answer(text, parse_mode="HTML", reply_markup=author_skip_keyboard())
     except Exception as e:
         logger.error(f"Ovozda xatolik: {e}")
         await status_msg.edit_text("Ovozni o'qishda xatolik yuz berdi. Matn ko'rinishida yozib yuboring.")
@@ -536,10 +606,15 @@ async def process_document_topic(message: Message, state: FSMContext, bot: Bot):
         topic = doc.file_name.rsplit(".", 1)[0].replace("_", " ").title()
         await status_msg.delete()
         await state.update_data(topic=topic, doc_text=extracted_text, is_doc=True)
-        await state.set_state(SlideCreationState.waiting_for_language)
+        await state.set_state(SlideCreationState.waiting_for_author)
 
-        text = f"📄 <b>Hujjat qabul qilindi:</b> <i>{doc.file_name}</i>\n\nTaqdimot <b>qaysi tilda</b> tuzilsin?"
-        await message.answer(text, parse_mode="HTML", reply_markup=language_selection_keyboard())
+        text = (
+            f"📄 <b>Hujjat qabul qilindi:</b> <i>{doc.file_name}</i>\n\n"
+            "✍️ <b>Slaydlar tagida muallif (tayyorlovchi) nomi chiqsinmi?</b>\n"
+            "<i>Masalan:</i> <code>Alisher Navoiy</code> yoki <code>Toshkent Davlat Universiteti</code>\n\n"
+            "Ismingizni yozing yoki o'tkazib yuboring:"
+        )
+        await message.answer(text, parse_mode="HTML", reply_markup=author_skip_keyboard())
     except Exception as e:
         logger.error(f"Faylda xatolik: {e}")
         await status_msg.edit_text("Faylni yuklashda xatolik yuz berdi. Qaytadan urinib ko'ring.")
@@ -553,10 +628,46 @@ async def process_text_topic(message: Message, state: FSMContext):
         return
 
     await state.update_data(topic=topic, is_doc=False)
+    await state.set_state(SlideCreationState.waiting_for_author)
+
+    text = (
+        f"📌 <b>Mavzu:</b> <i>{topic}</i>\n\n"
+        "✍️ <b>Slaydlar tagida muallif (tayyorlovchi) nomi chiqsinmi?</b>\n"
+        "<i>Masalan:</i> <code>Alisher Navoiy</code> yoki <code>Toshkent Davlat Universiteti</code>\n\n"
+        "Ismingizni yozing yoki o'tkazib yuboring:"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=author_skip_keyboard())
+
+
+@router.message(SlideCreationState.waiting_for_author)
+async def process_author_text(message: Message, state: FSMContext):
+    author = (message.text or "").strip()[:60]
+    await state.update_data(author_name=author)
     await state.set_state(SlideCreationState.waiting_for_language)
 
-    text = f"📌 <b>Mavzu:</b> <i>{topic}</i>\n\nTaqdimot <b>qaysi tilda</b> tayyorlansin?"
+    data = await state.get_data()
+    topic = data.get("topic", "")
+    text = (
+        f"📌 <b>Mavzu:</b> <i>{topic}</i>\n"
+        f"✍️ <b>Muallif:</b> <i>{author}</i>\n\n"
+        "Taqdimot <b>qaysi tilda</b> tayyorlansin?"
+    )
     await message.answer(text, parse_mode="HTML", reply_markup=language_selection_keyboard())
+
+
+@router.callback_query(F.data == "author_skip", SlideCreationState.waiting_for_author)
+async def process_author_skip(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    await state.update_data(author_name="")
+    await state.set_state(SlideCreationState.waiting_for_language)
+
+    data = await state.get_data()
+    topic = data.get("topic", "")
+    text = (
+        f"📌 <b>Mavzu:</b> <i>{topic}</i>\n\n"
+        "Taqdimot <b>qaysi tilda</b> tayyorlansin?"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=language_selection_keyboard())
 
 
 @router.callback_query(F.data.startswith("lang_"), SlideCreationState.waiting_for_language)
@@ -596,8 +707,24 @@ async def process_custom_count_input(message: Message, state: FSMContext):
 
     data = await state.get_data()
     topic = data.get("topic", "")
-    text = f"📌 <b>Mavzu:</b> <i>{topic}</i>\n📊 <b>Slaydlar soni:</b> {count} ta\n\n🎨 <b>Dizayn va ranglar mavzusini tanlang:</b>"
-    await message.answer(text, parse_mode="HTML", reply_markup=theme_selection_keyboard())
+
+    showcase_path = os.path.join(config.ASSETS_DIR, "themes_showcase.png")
+    if not os.path.exists(showcase_path):
+        generate_themes_showcase_image()
+
+    photo = FSInputFile(showcase_path)
+    caption = (
+        f"🎨 <b>Mavjud 10 xil Professional Shablonlar</b> (Yuqoridagi namunalar)\n\n"
+        f"📌 <b>Mavzu:</b> <i>{topic}</i>\n"
+        f"📊 <b>Slaydlar soni:</b> {count} ta\n\n"
+        f"O'zingizga ma'qul dizayn tugmasini bosing:"
+    )
+    await message.answer_photo(
+        photo=photo,
+        caption=caption,
+        parse_mode="HTML",
+        reply_markup=theme_selection_keyboard(),
+    )
 
 
 @router.callback_query(F.data.startswith("count_"), SlideCreationState.waiting_for_slide_count)
@@ -610,8 +737,28 @@ async def process_slide_count(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     topic = data.get("topic", "")
 
-    text = f"📌 <b>Mavzu:</b> <i>{topic}</i>\n📊 <b>Slaydlar:</b> {count} ta\n\n🎨 <b>Dizayn va ranglar mavzusini tanlang:</b>"
-    await safe_edit_or_answer(callback.message, text, reply_markup=theme_selection_keyboard())
+    showcase_path = os.path.join(config.ASSETS_DIR, "themes_showcase.png")
+    if not os.path.exists(showcase_path):
+        generate_themes_showcase_image()
+
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
+    photo = FSInputFile(showcase_path)
+    caption = (
+        f"🎨 <b>Mavjud 10 xil Professional Shablonlar</b> (Yuqoridagi namunalar)\n\n"
+        f"📌 <b>Mavzu:</b> <i>{topic}</i>\n"
+        f"📊 <b>Slaydlar soni:</b> {count} ta\n\n"
+        f"O'zingizga ma'qul dizayn tugmasini bosing:"
+    )
+    await callback.message.answer_photo(
+        photo=photo,
+        caption=caption,
+        parse_mode="HTML",
+        reply_markup=theme_selection_keyboard(),
+    )
 
 
 @router.callback_query(F.data.startswith("theme_"), SlideCreationState.waiting_for_theme)
@@ -626,6 +773,11 @@ async def process_theme_selected(callback: CallbackQuery, state: FSMContext):
     slide_count = data.get("slide_count", 5)
     theme_info = config.THEMES.get(theme_key, config.THEMES[config.DEFAULT_THEME])
 
+    try:
+        await callback.message.delete()
+    except Exception:
+        pass
+
     text = (
         f"📌 <b>Mavzu:</b> <i>{topic}</i>\n"
         f"📊 <b>Slaydlar soni:</b> {slide_count} ta\n"
@@ -634,7 +786,7 @@ async def process_theme_selected(callback: CallbackQuery, state: FSMContext):
         f"Taqdimotda so'zlash uchun har bir slaydga alohida tayyor nutq matni tuzilsinmi?\n"
         f"<i>(Agar «Ha» tanlansa, har bir slayd tagida va alohida 📄 Nutq_matni.txt faylida nutq taqdim etiladi)</i>"
     )
-    await safe_edit_or_answer(callback.message, text, reply_markup=speech_selection_keyboard())
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=speech_selection_keyboard())
 
 
 @router.callback_query(F.data.in_(["speech_yes", "speech_no"]), SlideCreationState.waiting_for_speech_choice)
@@ -646,6 +798,8 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
     slide_count = data.get("slide_count", 5)
     language = data.get("language", "uz")
     theme_key = data.get("theme_key", config.DEFAULT_THEME)
+    mode = data.get("mode", "general")
+    author_name = data.get("author_name", "")
     is_doc = data.get("is_doc", False)
     doc_text = data.get("doc_text", "")
     theme_info = config.THEMES.get(theme_key, config.THEMES[config.DEFAULT_THEME])
@@ -658,7 +812,7 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
         f"📌 <b>Mavzu:</b> {topic}\n"
         f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n"
         f"📊 <b>Hajmi:</b> {slide_count} ta slayd\n\n"
-        f"1️⃣ <i>AI orqali har xil dizayndagi reja {speech_desc} tuzilmoqda...</i>"
+        f"1️⃣ <i>AI mavzuga mos interaktiv reja {speech_desc} tuzmoqda...</i>"
     )
     try:
         status_msg = await callback.message.edit_text(loading_text, parse_mode="HTML")
@@ -673,6 +827,7 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
                 slide_count=slide_count,
                 language=language,
                 with_speech=with_speech,
+                mode=mode,
             )
         else:
             presentation_content = await generate_presentation_with_gemini(
@@ -680,10 +835,13 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
                 slide_count=slide_count,
                 language=language,
                 with_speech=with_speech,
+                mode=mode,
             )
     except Exception as e:
         logger.error(f"Gemini generatsiyasida xatolik: {e}")
-        presentation_content = generate_mock_presentation(topic, slide_count=slide_count, with_speech=with_speech)
+        presentation_content = generate_mock_presentation(
+            topic, slide_count=slide_count, with_speech=with_speech, mode=mode
+        )
 
     try:
         try:
@@ -692,7 +850,7 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
                 f"📌 <b>Mavzu:</b> {topic}\n"
                 f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n\n"
                 f"✅ <i>Kontent tayyorlandi!</i>\n"
-                f"2️⃣ <i>16:9 formatda zamonaviy grafikalar chizilmoqda...</i>",
+                f"2️⃣ <i>16:9 formatda tematik rasmlar va grafikalar chizilmoqda...</i>",
                 parse_mode="HTML",
             )
         except Exception:
@@ -702,9 +860,17 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
         pptx_file_path = create_presentation_file(
             content=presentation_content,
             theme_key=theme_key,
+            author_name=author_name,
         )
 
-        # 2. Spiker nutqi faylini yaratish (faqat agar kerak bo'lsa)
+        # 2. Slaydning vizual Telegram rasmini (Preview) yaratish
+        preview_img_path = generate_slide_preview_image(
+            content=presentation_content,
+            theme_key=theme_key,
+            author_name=author_name,
+        )
+
+        # 3. Spiker nutqi faylini yaratish (agar so'ralgan bo'lsa)
         speech_file_path = None
         if with_speech:
             speech_file_path = generate_speaker_speech_file(presentation_content)
@@ -712,6 +878,16 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
         user_id = callback.from_user.id
         database.use_slide(user_id, is_admin(user_id))
         database.record_presentation(user_id, topic, theme_key, len(presentation_content.slides))
+
+        # Oxirgi taqdimot ma'lumotlarini saqlash (Quick Re-skin va PDF uchun)
+        content_json_str = json.dumps([s.model_dump() for s in presentation_content.slides], ensure_ascii=False)
+        database.save_last_presentation(
+            user_id=user_id,
+            topic=topic,
+            theme=theme_key,
+            content_json=content_json_str,
+            author_name=author_name,
+        )
 
         user = database.get_user(user_id)
         left = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left']} ta"
@@ -721,27 +897,39 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
             if with_speech
             else "⚡️ <b>Spiker nutqi:</b> O'chirilgan (faqat slaydlar).\n\n"
         )
+        author_line = f"✍️ <b>Muallif:</b> {author_name}\n" if author_name else ""
 
         caption = (
             f"🎉 <b>Taqdimotingiz tayyor!</b>\n\n"
             f"📌 <b>Mavzu:</b> {topic}\n"
             f"📊 <b>Slaydlar:</b> {len(presentation_content.slides)} ta (Har biri individual dizaynda)\n"
             f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n"
-            f"📁 <b>Format:</b> PowerPoint (.pptx)\n"
+            f"{author_line}"
             f"💎 <b>Qolgan balansingiz:</b> {left}\n\n"
             f"{speech_status_line}"
             f"💡 <i>Slaydlarni istalgan PowerPoint dasturida ochib, bemalol tahrirlashingiz mumkin.</i>"
         )
 
-        # PowerPoint faylni yuborish
+        # 1-qadam: Slaydning preview rasmini yuborish
+        if preview_img_path and os.path.exists(preview_img_path):
+            preview_photo = FSInputFile(preview_img_path)
+            await callback.message.answer_photo(
+                photo=preview_photo,
+                caption=caption,
+                parse_mode="HTML",
+            )
+        else:
+            await callback.message.answer(caption, parse_mode="HTML")
+
+        # 2-qadam: PowerPoint faylni yuborish
         pptx_doc = FSInputFile(pptx_file_path, filename=os.path.basename(pptx_file_path))
         await callback.message.answer_document(
             document=pptx_doc,
-            caption=caption,
+            caption=f"📁 <b>{topic}</b> — PowerPoint (.pptx) taqdimot fayli",
             parse_mode="HTML",
         )
 
-        # Spiker nutqi faylini yuborish (faqat agar tanlangan bo'lsa)
+        # 3-qadam: Spiker nutqi faylini yuborish (faqat agar tanlangan bo'lsa)
         if with_speech and speech_file_path and os.path.exists(speech_file_path):
             speech_doc = FSInputFile(speech_file_path, filename=os.path.basename(speech_file_path))
             await callback.message.answer_document(
@@ -755,20 +943,26 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
         except Exception:
             pass
 
-        # Navigatsiya tugmalari bilan yakuniy xabar
+        # Navigatsiya va qo'shimcha amallar tugmalari
         finish_kb = InlineKeyboardMarkup(
             inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="📄 PDF formatida olish", callback_data="btn_download_pdf"),
+                    InlineKeyboardButton(text="🔄 Dizaynni o'zgartirish", callback_data="btn_reskin"),
+                ],
                 [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
                 [
-                    InlineKeyboardButton(text="👤 Profil & Limit", callback_data="btn_profile"),
-                    InlineKeyboardButton(text="💎 Tariflar", callback_data="btn_tariffs"),
+                    InlineKeyboardButton(text="👤 Profil & Balans", callback_data="btn_profile"),
+                    InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus"),
                 ],
                 [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
             ]
         )
         await callback.message.answer(
-            "✨ <b>Taqdimot muvaffaqiyatli yetkazildi!</b>\n\n"
-            "Yana yangi slayd yaratish yoki balansingizni tekshirish uchun quyidagi tugmalardan birini bosing:",
+            "✨ <b>Taqdimot to'liq yetkazildi!</b>\n\n"
+            "💡 <b>Qulay imkoniyatlar:</b>\n"
+            "• 📄 <b>PDF formatida olish:</b> Telefon va chop etish uchun tayyor PDF.\n"
+            "• 🔄 <b>Dizaynni o'zgartirish (Re-skin):</b> Taqdimotni 1 soniyada boshqa rang va shablonga o'tkazish (AI qayta ishlatilmaydi va limit ketmaydi!).",
             parse_mode="HTML",
             reply_markup=finish_kb,
         )
@@ -779,6 +973,189 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
             "❌ Slayd tayyorlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
             reply_markup=main_menu_keyboard(callback.from_user.id),
         )
+
+
+# ------------------ PDF EXPORT VA RE-SKIN HANDLERS ------------------
+@router.callback_query(F.data == "btn_download_pdf")
+async def cb_download_pdf(callback: CallbackQuery):
+    await safe_callback_answer(callback, "PDF tayyorlanmoqda...")
+    user_id = callback.from_user.id
+    last_pres = database.get_last_presentation(user_id)
+    if not last_pres:
+        await callback.message.answer("⚠️ Oxirgi taqdimot ma'lumotlari topilmadi. Iltimos, yangi slayd yarating.")
+        return
+
+    status_msg = await callback.message.answer("⏳ <i>PDF fayl shakllantirilmoqda...</i>", parse_mode="HTML")
+    try:
+        topic = last_pres["topic"]
+        theme_key = last_pres["theme"]
+        author_name = last_pres.get("author_name")
+        slides_data = json.loads(last_pres["content_json"])
+        content = PresentationContent(
+            topic=topic,
+            slides=[SlideContent(**s) for s in slides_data]
+        )
+
+        clean_topic = "".join(c for c in topic if c.isalnum() or c in (" ", "_", "-")).strip()[:35]
+        pptx_path = os.path.join(config.GENERATED_DIR, f"{clean_topic}.pptx")
+        if not os.path.exists(pptx_path):
+            pptx_path = create_presentation_file(content, theme_key=theme_key, author_name=author_name)
+
+        pdf_path = convert_pptx_to_pdf(
+            pptx_path=pptx_path,
+            content=content,
+            theme_key=theme_key,
+            author_name=author_name,
+        )
+
+        await status_msg.delete()
+        if pdf_path and os.path.exists(pdf_path):
+            pdf_filename = f"{clean_topic if clean_topic else 'Taqdimot'}.pdf"
+            pdf_doc = FSInputFile(pdf_path, filename=pdf_filename)
+            await callback.message.answer_document(
+                document=pdf_doc,
+                caption=f"📄 <b>{topic}</b> — PDF formatidagi taqdimot",
+                parse_mode="HTML",
+            )
+        else:
+            await callback.message.answer("❌ PDF fayl shakllantirishda xatolik yuz berdi.")
+    except Exception as e:
+        logger.error(f"PDF yuklashda xatolik: {e}")
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        await callback.message.answer("❌ PDF yaratishda xatolik yuz berdi.")
+
+
+@router.callback_query(F.data == "btn_reskin")
+async def cb_reskin_prompt(callback: CallbackQuery):
+    await safe_callback_answer(callback)
+    user_id = callback.from_user.id
+    last_pres = database.get_last_presentation(user_id)
+    if not last_pres:
+        await callback.message.answer("⚠️ Oxirgi taqdimot ma'lumotlari topilmadi. Iltimos, yangi slayd yarating.")
+        return
+
+    showcase_path = os.path.join(config.ASSETS_DIR, "themes_showcase.png")
+    if not os.path.exists(showcase_path):
+        generate_themes_showcase_image()
+
+    photo = FSInputFile(showcase_path)
+    current_th = config.THEMES.get(last_pres['theme'], config.THEMES[config.DEFAULT_THEME])
+    text = (
+        "🔄 <b>1-Click Dizaynni O'zgartirish (Re-skin)</b>\n\n"
+        f"📌 <b>Mavzu:</b> {last_pres['topic']}\n"
+        f"🎨 <b>Joriy dizayn:</b> {current_th.emoji} {current_th.name}\n\n"
+        "Qaysi yangi dizaynga o'tkazmoqchisiz? Bitta bosishda bir zumda tayyor bo'ladi (AI qayta ishlatilmaydi va limit ketmaydi!):"
+    )
+    await callback.message.answer_photo(
+        photo=photo,
+        caption=text,
+        parse_mode="HTML",
+        reply_markup=theme_selection_keyboard(prefix="reskin_to_"),
+    )
+
+
+@router.callback_query(F.data.startswith("reskin_to_"))
+async def cb_process_reskin(callback: CallbackQuery):
+    await safe_callback_answer(callback, "Yangi dizaynga o'tkazilmoqda...")
+    new_theme = callback.data.split("reskin_to_")[1]
+    user_id = callback.from_user.id
+
+    last_pres = database.get_last_presentation(user_id)
+    if not last_pres:
+        await callback.message.answer("⚠️ Taqdimot ma'lumotlari topilmadi.")
+        return
+
+    theme_info = config.THEMES.get(new_theme, config.THEMES[config.DEFAULT_THEME])
+    status_msg = await callback.message.answer(
+        f"⏳ <i>Yangi dizaynga o'tkazilmoqda ({theme_info.emoji} {theme_info.name})...</i>",
+        parse_mode="HTML",
+    )
+
+    try:
+        topic = last_pres["topic"]
+        author_name = last_pres.get("author_name")
+        slides_data = json.loads(last_pres["content_json"])
+        content = PresentationContent(
+            topic=topic,
+            slides=[SlideContent(**s) for s in slides_data]
+        )
+
+        # Yangi dizaynda fayl va preview yaratish
+        pptx_file_path = create_presentation_file(content=content, theme_key=new_theme, author_name=author_name)
+        preview_img_path = generate_slide_preview_image(content=content, theme_key=new_theme, author_name=author_name)
+
+        # Bazani yangilash
+        database.save_last_presentation(
+            user_id=user_id,
+            topic=topic,
+            theme=new_theme,
+            content_json=last_pres["content_json"],
+            author_name=author_name,
+        )
+
+        await status_msg.delete()
+
+        # Preview rasm
+        preview_photo = FSInputFile(preview_img_path)
+        caption = (
+            f"🎨 <b>Yangi Dizayndagi Taqdimot Tayyor!</b>\n\n"
+            f"📌 <b>Mavzu:</b> {topic}\n"
+            f"🎨 <b>Yangi Dizayn:</b> {theme_info.emoji} {theme_info.name}\n"
+            f"📊 <b>Slaydlar:</b> {len(content.slides)} ta\n"
+            f"✍️ <b>Muallif:</b> {author_name if author_name else 'Standart'}\n\n"
+            f"📁 <i>PowerPoint (.pptx) fayli quyida yuklandi:</i>"
+        )
+        await callback.message.answer_photo(photo=preview_photo, caption=caption, parse_mode="HTML")
+
+        pptx_doc = FSInputFile(pptx_file_path, filename=os.path.basename(pptx_file_path))
+        await callback.message.answer_document(
+            document=pptx_doc,
+            caption=f"📁 <b>{topic}</b> — ({theme_info.name} dizaynida)",
+            parse_mode="HTML",
+        )
+
+        finish_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [
+                    InlineKeyboardButton(text="📄 PDF formatida olish", callback_data="btn_download_pdf"),
+                    InlineKeyboardButton(text="🔄 Boshqa dizayn", callback_data="btn_reskin"),
+                ],
+                [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
+                [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
+            ]
+        )
+        await callback.message.answer(
+            "✨ <b>Dizayn muvaffaqiyatli yangilandi!</b>",
+            reply_markup=finish_kb,
+            parse_mode="HTML",
+        )
+    except Exception as e:
+        logger.error(f"Re-skin da xatolik: {e}")
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        await callback.message.answer("❌ Qayta dizayn qilishda xatolik yuz berdi.")
+
+
+# ------------------ KUNLIK BONUS HANDLER ------------------
+@router.callback_query(F.data == "btn_daily_bonus")
+async def cb_daily_bonus(callback: CallbackQuery):
+    user_id = callback.from_user.id
+    success, msg, bal, rem = database.claim_daily_bonus(user_id)
+    await safe_callback_answer(callback, "Kunlik bonus!")
+
+    status_extra = f"\n\n📊 <b>Joriy balansingiz:</b> <b>{bal} ta slayd</b>" if success else ""
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide")],
+            [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+        ]
+    )
+    await safe_edit_or_answer(callback.message, f"{msg}{status_extra}", reply_markup=kb)
 
 
 # ------------------ TELEGRAMDAN TO'LIQ BOSHQARILADIGAN ADMIN PANEL ------------------
@@ -1340,18 +1717,25 @@ async def cb_admin_stats(callback: CallbackQuery):
 @router.callback_query(F.data == "btn_themes")
 async def cb_themes_gallery(callback: CallbackQuery):
     await safe_callback_answer(callback)
+    showcase_path = os.path.join(config.ASSETS_DIR, "themes_showcase.png")
+    if not os.path.exists(showcase_path):
+        generate_themes_showcase_image()
+
+    photo = FSInputFile(showcase_path)
     text = (
-        "🎨 <b>Mavjud 10 xil Professional Dizayn Mavzulari:</b>\n\n"
-        "🌙 <b>Dark Tech:</b> To'q fon, neon moviy va indigo aksentlar (IT, texnologiya).\n"
-        "⚡️ <b>Cyberpunk:</b> To'q binafsha fon, neon pushti va och firuza elementlar.\n"
-        "💼 <b>Corporate Blue:</b> Oq fon, qirollik ko'k ranglar (Biznes va rasmiy).\n"
-        "🌿 <b>Emerald Green:</b> To'q zumrad fon, yorqin yashil elementlar (Ta'lim va ekologiya).\n"
-        "🌅 <b>Modern Sunset:</b> To'q zamonaviy fon, koral va oltin aksentlar (Kreativ).\n"
-        "☀️ <b>Silicon Valley:</b> Oq toza fon, indigo va binafsharang (Startaplar).\n"
-        "☕️ <b>Warm Editorial:</b> Iliq krem fon, qahva va amber ranglar (Gumanitar va hisobot).\n"
-        "👑 <b>Midnight Gold:</b> Qora chuqur fon, shohona oltin va sariq aksentlar (Premium).\n"
-        "🌊 <b>Sapphire Ocean:</b> To'q okean moviyligi, yorqin akvamarin neon ranglar.\n"
-        "🍷 <b>Ruby Luxury:</b> To'q yoqut qizil fon, nafis pushti aksentlar (Eksklyuziv)."
+        "🎨 <b>10 xil Professional Dizayn Shablonlari Ko'rgazmasi</b>\n\n"
+        "Barcha dizayn shablonlarining haqiqiy 16:9 ko'rinishlari yuqoridagi rasmda aks etgan.\n\n"
+        "🌙 <b>Dark Tech:</b> IT, dasturlash va texnologiya\n"
+        "⚡️ <b>Cyberpunk:</b> Neon pushti va firuza (Futuristik)\n"
+        "💼 <b>Corporate Blue:</b> Biznes, bank va rasmiy taqdimotlar\n"
+        "🌿 <b>Emerald Green:</b> Ta'lim, ekologiya va tibbiyot\n"
+        "🌅 <b>Modern Sunset:</b> Marketing, dizayn va startaplar\n"
+        "☀️ <b>Silicon Valley:</b> Zamonaviy toza oq dizayn\n"
+        "☕️ <b>Warm Editorial:</b> Gumanitar fanlar, adabiyot va tarix\n"
+        "👑 <b>Midnight Gold:</b> VIP, premium va hashamatli loyihalar\n"
+        "🌊 <b>Sapphire Ocean:</b> Ilmiy tadqiqotlar va dengiz moviyligi\n"
+        "🍷 <b>Ruby Luxury:</b> San'at, moda va eksklyuziv taqdimotlar\n\n"
+        "<i>Slayd yaratishda o'zingizga yoqqan shablonni tanlashingiz mumkin!</i>"
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
@@ -1359,7 +1743,7 @@ async def cb_themes_gallery(callback: CallbackQuery):
             [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
         ]
     )
-    await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
+    await callback.message.answer_photo(photo=photo, caption=text, parse_mode="HTML", reply_markup=kb)
 
 
 @router.callback_query(F.data == "btn_help")

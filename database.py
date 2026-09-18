@@ -36,6 +36,23 @@ def init_db():
     except sqlite3.OperationalError:
         pass
 
+    try:
+        cursor.execute("ALTER TABLE users ADD COLUMN last_daily_bonus TIMESTAMP")
+    except sqlite3.OperationalError:
+        pass
+
+    # Oxirgi yaratilgan taqdimot kontentini saqlash jadvali (Quick Re-skin va PDF uchun)
+    cursor.execute("""
+    CREATE TABLE IF NOT EXISTS last_presentations (
+        user_id INTEGER PRIMARY KEY,
+        topic TEXT,
+        theme TEXT,
+        content_json TEXT,
+        author_name TEXT,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+    """)
+
     # Sozlamalar jadvali
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS settings (
@@ -411,4 +428,79 @@ def get_global_stats() -> Dict[str, Any]:
     }
 
 
+def claim_daily_bonus(user_id: int) -> Tuple[bool, str, int, int]:
+    """
+    Foydalanuvchiga 24 soatda 1 marta +1 bepul slayd bonusi beradi.
+    Qaytaradi: (muvaffaqiyatli: bool, xabar: str, joriy_balans: int, qolgan_soniya: int)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT slides_left, is_vip, last_daily_bonus FROM users WHERE user_id = ?", (user_id,))
+    user = cursor.fetchone()
+    if not user:
+        conn.close()
+        return False, "Foydalanuvchi topilmadi!", 0, 0
+
+    if user["is_vip"]:
+        conn.close()
+        return False, "Sizda allaqachon Cheksiz VIP tarif faol!", 9999, 0
+
+    last_bonus = user["last_daily_bonus"]
+    if last_bonus:
+        # 24 soat (86400 soniya) o'tganligini tekshirish
+        cursor.execute("SELECT (strftime('%s', 'now') - strftime('%s', ?)) as diff", (last_bonus,))
+        row = cursor.fetchone()
+        diff = row["diff"] if row and row["diff"] is not None else 86401
+        if diff < 86400:
+            remaining = 86400 - diff
+            hours = remaining // 3600
+            mins = (remaining % 3600) // 60
+            conn.close()
+            return False, f"⏳ <b>Kunlik bonus allaqachon olingan!</b>\n\nKeyingi bonusni <b>{hours} soat {mins} daqiqadan</b> keyin olishingiz mumkin.", user["slides_left"], remaining
+
+    # Bonus berish
+    cursor.execute("""
+        UPDATE users 
+        SET slides_left = slides_left + 1, last_daily_bonus = CURRENT_TIMESTAMP 
+        WHERE user_id = ?
+    """, (user_id,))
+    conn.commit()
+
+    cursor.execute("SELECT slides_left FROM users WHERE user_id = ?", (user_id,))
+    new_bal = cursor.fetchone()["slides_left"]
+    conn.close()
+    return True, "🎉 <b>Tabriklaymiz!</b> Sizga bugungi kunlik <b>+1 bepul slayd</b> bonusi berildi!", new_bal, 0
+
+
+def save_last_presentation(user_id: int, topic: str, theme: str, content_json: str, author_name: Optional[str] = None):
+    """Foydalanuvchining oxirgi yaratilgan taqdimotini Quick Re-skin va PDF uchun saqlaydi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        INSERT INTO last_presentations (user_id, topic, theme, content_json, author_name, updated_at)
+        VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+        ON CONFLICT(user_id) DO UPDATE SET
+            topic = excluded.topic,
+            theme = excluded.theme,
+            content_json = excluded.content_json,
+            author_name = excluded.author_name,
+            updated_at = CURRENT_TIMESTAMP
+    """, (user_id, topic, theme, content_json, author_name))
+    conn.commit()
+    conn.close()
+
+
+def get_last_presentation(user_id: int) -> Optional[Dict[str, Any]]:
+    """Foydalanuvchining oxirgi yaratilgan taqdimoti ma'lumotlarini oladi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM last_presentations WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    conn.close()
+    if row:
+        return dict(row)
+    return None
+
+
 init_db()
+
