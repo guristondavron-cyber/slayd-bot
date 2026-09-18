@@ -1,10 +1,9 @@
 # Python 3.12 yengil konteyneri
 FROM python:3.12-slim
 
-# Tizim paketlarini yangilash (PDF konvertatsiyasi uchun headless LibreOffice bilan)
+# Tizim paketlarini yangilash
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
-    libreoffice-impress-nogpu \
     fonts-dejavu-core \
     && rm -rf /var/lib/apt/lists/*
 

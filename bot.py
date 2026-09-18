@@ -58,6 +58,17 @@ logger = logging.getLogger("SlideBot")
 router = Router()
 
 
+def get_themes_showcase_path() -> str:
+    """Showcase rasmini topadi (assets yoki root papkada) yoki dinamik generatsiya qiladi."""
+    assets_p = os.path.join(config.ASSETS_DIR, "themes_showcase.png")
+    if os.path.exists(assets_p) and os.path.getsize(assets_p) > 10000:
+        return assets_p
+    root_p = os.path.join(os.path.dirname(__file__), "themes_showcase.png")
+    if os.path.exists(root_p) and os.path.getsize(root_p) > 10000:
+        return root_p
+    return generate_themes_showcase_image()
+
+
 # FSM Holatlari
 class SlideCreationState(StatesGroup):
     waiting_for_mode = State()
@@ -708,9 +719,7 @@ async def process_custom_count_input(message: Message, state: FSMContext):
     data = await state.get_data()
     topic = data.get("topic", "")
 
-    showcase_path = os.path.join(config.ASSETS_DIR, "themes_showcase.png")
-    if not os.path.exists(showcase_path):
-        generate_themes_showcase_image()
+    showcase_path = get_themes_showcase_path()
 
     photo = FSInputFile(showcase_path)
     caption = (
@@ -737,9 +746,7 @@ async def process_slide_count(callback: CallbackQuery, state: FSMContext):
     data = await state.get_data()
     topic = data.get("topic", "")
 
-    showcase_path = os.path.join(config.ASSETS_DIR, "themes_showcase.png")
-    if not os.path.exists(showcase_path):
-        generate_themes_showcase_image()
+    showcase_path = get_themes_showcase_path()
 
     try:
         await callback.message.delete()
@@ -1037,9 +1044,7 @@ async def cb_reskin_prompt(callback: CallbackQuery):
         await callback.message.answer("⚠️ Oxirgi taqdimot ma'lumotlari topilmadi. Iltimos, yangi slayd yarating.")
         return
 
-    showcase_path = os.path.join(config.ASSETS_DIR, "themes_showcase.png")
-    if not os.path.exists(showcase_path):
-        generate_themes_showcase_image()
+    showcase_path = get_themes_showcase_path()
 
     photo = FSInputFile(showcase_path)
     current_th = config.THEMES.get(last_pres['theme'], config.THEMES[config.DEFAULT_THEME])
@@ -1717,9 +1722,7 @@ async def cb_admin_stats(callback: CallbackQuery):
 @router.callback_query(F.data == "btn_themes")
 async def cb_themes_gallery(callback: CallbackQuery):
     await safe_callback_answer(callback)
-    showcase_path = os.path.join(config.ASSETS_DIR, "themes_showcase.png")
-    if not os.path.exists(showcase_path):
-        generate_themes_showcase_image()
+    showcase_path = get_themes_showcase_path()
 
     photo = FSInputFile(showcase_path)
     text = (
