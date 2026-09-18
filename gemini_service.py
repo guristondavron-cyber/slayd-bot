@@ -36,6 +36,9 @@ class SlideContent(BaseModel):
         "stats_metrics",
         "comparison",
         "timeline_steps",
+        "matrix_2x2",
+        "quote_highlight",
+        "checklist_points",
         "conclusion",
     ] = Field(description="Slaydning vizual joylashuv turi")
     category_badge: str = Field(description="Slayd tepasidagi kichik kategoriya tegi (masalan: 'KIRISH', 'MUAMMO', 'YECHIM', 'STATISTIKA', 'BOSQICHLAR', 'XULOSA')")
@@ -55,6 +58,16 @@ class SlideContent(BaseModel):
     # timeline_steps uchun
     steps: Optional[List[CardItem]] = Field(default=None, description="Ketma-ket 3-4 ta bosqich yoki harakatlar rejasi")
     
+    # quote_highlight uchun
+    quote_text: Optional[str] = Field(default=None, description="Diqqatni tortuvchi asosiy iqtibos yoki g'oya (1-2 jumla)")
+    quote_author: Optional[str] = Field(default=None, description="Iqtibos muallifi yoki manbasi (masalan: 'Stiv Jobs', 'Bozor Tahlili', 'Ekspert')")
+
+    # checklist_points uchun
+    checklist: Optional[List[str]] = Field(default=None, description="3-5 ta amaliy tavsiya, qoida yoki tasdiqlangan punktlar ro'yxati")
+
+    # matrix_2x2 uchun
+    matrix_items: Optional[List[CardItem]] = Field(default=None, description="2x2 matritsa uchun roppa-rosa 4 ta karta")
+
     # conclusion / call to action
     highlight_takeaway: Optional[str] = Field(default=None, description="Asosiy chaqiriq, yakuniy xulosa yoki iqtibos")
     speaker_notes: Optional[str] = Field(default=None, description="Spiker uchun qisqa maslahat")
@@ -67,39 +80,47 @@ class PresentationContent(BaseModel):
     slides: List[SlideContent] = Field(description="Belgilangan miqdordagi slaydlar ketma-ketligi")
 
 
-def build_system_prompt(topic: str, slide_count: int, language: str = "uz") -> str:
+def build_system_prompt(topic: str, slide_count: int, language: str = "uz", with_speech: bool = True) -> str:
     lang_instruction = {
         "uz": "Barcha matnlar, sarlavhalar va tushuntirishlar o'zbek adabiy tilida (lotin alifbosida), juda chiroyli va professional uslubda bo'lsin.",
         "ru": "Все тексты, заголовки и описания должны быть на грамотном русском языке.",
         "en": "All texts, headings, and explanations must be in clear, professional English.",
     }.get(language, "O'zbek tilida yozing.")
 
+    speech_instruction = (
+        "Har bir slayd uchun 'speaker_speech' maydoniga spiker minbarda turib tinglovchilarga aytib berishi kerak bo'lgan 2-4 jumlalik jonli, ta'sirchan nutq matnini yozing."
+        if with_speech
+        else "Spiker nutqi talab qilinmaydi, 'speaker_speech' maydonini bo'sh (null) qoldiring."
+    )
+
     return f"""Siz dunyo darajasidagi professional taqdimotlar (Executive Pitch Decks & Keynotes) dizayneri va biznes konsultantisiz.
-Sizning vazifangiz quyidagi mavzu bo'yicha ROPPA-ROSA {slide_count} TA SLAYDDAN IBORAT to'liq va mukammal taqdimot kontentini tayyorlash:
+Sizning vazifangiz quyidagi mavzu bo'yicha ROPPA-ROSA {slide_count} TA SLAYDDAN IBORAT to'liq, mukammal va har bir slaydi bir-biridan butunlay farq qiluvchi taqdimot kontentini tayyorlash:
 MAVZU: "{topic}"
 
 TIL TALABI:
 {lang_instruction}
 
-MUHIM QAT'IY TALAB:
+MUHIM QAT'IY TALABLAR:
 1. JAMI SLAYDLAR SONI: 'slides' ro'yxatida ANIQ VA ROPPA-ROSA {slide_count} TA SLAYD BO'LISHI SHART!
    - Agar {slide_count} tadan kam (masalan 5 ta yoki 6 ta) slayd bersangiz, topshiriq qabul qilinmaydi.
    - Slaydlar massivida (slides ro'yxatida) aniq {slide_count} ta element bo'lishi MAJBUR!
 
-SLAYDLAR STRUKTURASI ({slide_count} ta slayd uchun taqsimot):
-- 1-slayd DOIMO: "title_slide" (Mavzuning kuchli sarlavhasi, kategoriya tegi va qisqa sub-sarlavha)
-- 2-slayddan {slide_count - 1}-slaydgacha (o'rta qismdagi barcha {slide_count - 2} ta slayd):
-  Mavzuning har xil qirralari, muammolar, tahlillar, raqamlar, taqqoslashlar va bosqichlarni ifodalovchi quyidagi layout turlarini xilma-xil qilib aralashtirib qo'llang:
-  * "cards_grid" (asosiy yo'nalishlar, afzalliklar yoki tushunchalar - 3-4 ta karta)
-  * "stats_metrics" (muhim raqamlar, statistik ko'rsatkichlar, bozor tahlili - 4 ta raqam)
-  * "comparison" (eski vs yangi, muammo va yechim, afzalliklar va xavflar - 2 ustun)
-  * "timeline_steps" (bosqichma-bosqich reja, harakatlar strategiyasi - 4 bosqich)
-  Har bir o'rta slayd mavzuning yangi va qiziqarli jihatini chuqur ochib bersin, takrorlanmasin!
-- Oxirgi {slide_count}-slayd DOIMO: "conclusion" (Yakuniy xulosa, kelajak istiqbollari va chaqiriq)
+2. HAR BIR SLAYD UNIKAL VA TURFA XIL BO'LISHI SHART (BIR XIL DIZAYN BO'LMASIN!):
+   - Ketma-ket ikkita bir xil layout ISHLATMANG! Slaydlar almashib, ko'rgazmali va qiziqarli bo'lsin.
+   - Mavjud layout turlaridan keng va xilma-xil foydalaning:
+     * "title_slide" (faqat 1-slayd uchun muhtasham muqova)
+     * "cards_grid" (3 ta asosiy yo'nalish yoki tushuncha kartalari)
+     * "stats_metrics" (katta raqamlar, masalan '85%', '3.5x', '$12M', '24/7' bilan 4 ta statistika)
+     * "comparison" (muammo vs yechim, an'anaviy vs yangi yondashuv - 2 ta kontrast ustun)
+     * "timeline_steps" (1-bosqich -> 2-bosqich -> 3-bosqich -> 4-bosqich yo'l xaritasi)
+     * "matrix_2x2" (4 ta burchakli matritsa yoki 4 ta asosiy ustun: 'matrix_items' maydonida 4 ta karta)
+     * "quote_highlight" (markaziy kuchli fikr yoki iqtibos: 'quote_text' va 'quote_author' maydonlari)
+     * "checklist_points" (3-5 ta tasdiqlangan amaliy tavsiya yoki qoida: 'checklist' maydoni)
+     * "conclusion" (oxirgi {slide_count}-slayd uchun yakuniy chaqiriq va natijalar)
 
 MATN VA NUTQ TALABLARI:
 - Matnlar lo'nda, aniq, qiziqarli va professional bo'lsin.
-- Har bir slayd uchun 'speaker_speech' maydoniga spiker minbarda turib tinglovchilarga aytib berishi kerak bo'lgan 2-4 jumlalik jonli, ta'sirchan nutq matnini yozing.
+- {speech_instruction}
 - 'slides' massivida jami {slide_count} ta to'liq element bo'lsin!
 """
 
@@ -120,9 +141,10 @@ def _clean_json_string(text: str) -> str:
     return text
 
 
-def _get_extra_thematic_slides(topic: str, language: str = "uz") -> List[SlideContent]:
-    """Slaydlar soni kam chiqqan taqdirda qo'shimcha boyituvchi sifatli slaydlar bazasi."""
+def _get_extra_thematic_slides(topic: str, language: str = "uz", with_speech: bool = True) -> List[SlideContent]:
+    """Slaydlar soni kam chiqqan taqdirda qo'shimcha boyituvchi sifatli va turfa xil slaydlar bazasi."""
     short_t = topic if len(topic) < 40 else topic[:40] + "..."
+    spk = lambda s: s if with_speech else None
     return [
         SlideContent(
             layout="cards_grid",
@@ -134,7 +156,7 @@ def _get_extra_thematic_slides(topic: str, language: str = "uz") -> List[SlideCo
                 CardItem(title="Resurslar Tahlili", description="Mavjud imkoniyatlar, vaqt va moddiy resurslardan oqilona foydalanish.", badge="Omil 2"),
                 CardItem(title="Monitoring va Nazorat", description="Har bir bosqichni doimiy nazorat qilib borish va tezkor tuzatishlar kiritish.", badge="Omil 3"),
             ],
-            speaker_speech="Ushbu slaydda biz jarayonning muvaffaqiyatini ta'minlovchi uchta asosiy omilni ko'rib chiqamiz. Ularning har biri yakuniy natijaga bevosita ta'sir ko'rsatadi.",
+            speaker_speech=spk("Ushbu slaydda biz jarayonning muvaffaqiyatini ta'minlovchi uchta asosiy omilni ko'rib chiqamiz. Ularning har biri yakuniy natijaga bevosita ta'sir ko'rsatadi."),
         ),
         SlideContent(
             layout="stats_metrics",
@@ -147,7 +169,17 @@ def _get_extra_thematic_slides(topic: str, language: str = "uz") -> List[SlideCo
                 StatItem(number="65%", label="Xarajat qisqarishi", description="Ortiqcha sarf-xarajatlar oldini olish"),
                 StatItem(number="100%", label="Ishonchlilik", description="Standartlarga to'liq mos kelish darajasi"),
             ],
-            speaker_speech="Ko'rib turganingizdek, raqamlar o'z-o'zidan gapirmoqda. Tizimli yondashuv samaradorlikni 92 foizgacha oshirish imkonini beradi.",
+            speaker_speech=spk("Ko'rib turganingizdek, raqamlar o'z-o'zidan gapirmoqda. Tizimli yondashuv samaradorlikni 92 foizgacha oshirish imkonini beradi."),
+        ),
+        SlideContent(
+            layout="quote_highlight",
+            category_badge="MUHIM FALSAFA VA IQTIHOS",
+            title="Mavzuning Asosiy G'oyasi",
+            subtitle="Tizimning chuqur ma'nosi va strategik ahamiyati",
+            quote_text="\"Katta muvaffaqiyatlar — har kuni kiritiladigan kichik, ammo qat'iy intizomli intilishlar mevasidir.\"",
+            quote_author="Strategik Ekspert Xulosasi",
+            highlight_takeaway="Har bir o'zgarish avvalambor to'g'ri tushuncha va qarashdan boshlanadi.",
+            speaker_speech=spk("Ushbu iqtibos butun loyihaning ruhini ifodalaydi. Katta o'sishga erishish uchun intizomli qadamlar zarur."),
         ),
         SlideContent(
             layout="comparison",
@@ -172,7 +204,20 @@ def _get_extra_thematic_slides(topic: str, language: str = "uz") -> List[SlideCo
                     "Doimiy xavfsizlik va barqarorlikni ta'minlash",
                 ],
             ),
-            speaker_speech="Ushbu taqqoslash orqali yangi yechimning asosiy afzalliklari hamda yuzaga kelishi mumkin bo'lgan xatarlarni qanday bartaraf etishimiz ko'rsatilgan.",
+            speaker_speech=spk("Ushbu taqqoslash orqali yangi yechimning asosiy afzalliklari hamda yuzaga kelishi mumkin bo'lgan xatarlarni qanday bartaraf etishimiz ko'rsatilgan."),
+        ),
+        SlideContent(
+            layout="matrix_2x2",
+            category_badge="4 TA USTUN (MATRITSA)",
+            title="Barqaror Rivojlanish Matritsasi",
+            subtitle="Tizimni 4 ta asosiy burchak va tamoyillar bo'yicha tahlili",
+            matrix_items=[
+                CardItem(title="Kadrlar Salohiyati", description="Iqtidorli mutaxassislarni jalb qilish va uzluksiz malakasini oshirib borish.", badge="01. Inson"),
+                CardItem(title="Texnologik Quvvat", description="Zamonaviy algoritmlar, ma'lumotlar bazasi va bulutli servislar.", badge="02. Texnika"),
+                CardItem(title="Moliyaviy Oqilonalik", description="Xarajatlarni maqbullashtirish va yuqori daromadlilikka erishish.", badge="03. Moliya"),
+                CardItem(title="Bozor Talabi", description="Auditoriya ehtiyojlarini oldindan sezish va tezkor yechim berish.", badge="04. Bozor"),
+            ],
+            speaker_speech=spk("Ushbu matritsada 4 ta asosiy ustun jamlangan: inson kapitali, texnologiya, moliya va bozor talablari."),
         ),
         SlideContent(
             layout="timeline_steps",
@@ -185,7 +230,20 @@ def _get_extra_thematic_slides(topic: str, language: str = "uz") -> List[SlideCo
                 CardItem(title="Sinov va Sifat Nazorati", description="Dastlabki natijalarni baholash va takomillashtirish.", badge="Qadam 3"),
                 CardItem(title="Barqaror Qo'llash", description="Muntazam ishlash rejimiga o'tish va kengaytirish.", badge="Qadam 4"),
             ],
-            speaker_speech="Harakatlar rejasi to'rtta aniq qadamdan iborat. Har bir qadam o'z vaqtida va sifatli bajarilishi shart.",
+            speaker_speech=spk("Harakatlar rejasi to'rtta aniq qadamdan iborat. Har bir qadam o'z vaqtida va sifatli bajarilishi shart."),
+        ),
+        SlideContent(
+            layout="checklist_points",
+            category_badge="AMALIY CHECKLIST",
+            title="Muvaffaqiyat Uchun Muhim Qoidalar",
+            subtitle="Kutilgan natijaga erishishda rioya qilinishi shart bo'lgan talablar",
+            checklist=[
+                "Barcha ko'rsatkichlarni raqamlashtirish va har haftalik hisobotlarni yuritish",
+                "Xatolar ustida tezkor ishlash va qayta aloqa mexanizmini yo'lga qo'yish",
+                "Xavfsizlik protokollariga 100% qat'iy amal qilish",
+                "Innovatsiyalarni sinashdan qo'rqmaslik va doimiy yangilanish",
+            ],
+            speaker_speech=spk("Ushbu checklist orqali siz kundalik faoliyatda amal qilishingiz kerak bo'lgan asosiy 4 ta oltin qoidani ko'rishingiz mumkin."),
         ),
         SlideContent(
             layout="cards_grid",
@@ -197,7 +255,7 @@ def _get_extra_thematic_slides(topic: str, language: str = "uz") -> List[SlideCo
                 CardItem(title="Intellektual Tahlil", description="Ma'lumotlar tahlili asosida to'g'ri qarorlar qabul qilish.", badge="AI & Data"),
                 CardItem(title="Moslashuvchanlik", description="Har qanday o'zgaruvchan sharoitlarga tezkor moslashish qobiliyati.", badge="Agile"),
             ],
-            speaker_speech="Zamonaviy dunyoda innovatsion vositalarsiz natijaga erishib bo'lmaydi. Biz eng ilg'or raqamli yechimlarga tayanamiz.",
+            speaker_speech=spk("Zamonaviy dunyoda innovatsion vositalarsiz natijaga erishib bo'lmaydi. Biz eng ilg'or raqamli yechimlarga tayanamiz."),
         ),
         SlideContent(
             layout="stats_metrics",
@@ -210,74 +268,18 @@ def _get_extra_thematic_slides(topic: str, language: str = "uz") -> List[SlideCo
                 StatItem(number="Top 5", label="Yetakchilik o'rni", description="Soha bo'yicha yuqori pog'onalarga chiqish"),
                 StatItem(number="A+", label="Sifat darajasi", description="Xalqaro talablar va standartlarga javob berish"),
             ],
-            speaker_speech="Kelajak istiqbollarimiz uzoq muddatli strategiyaga asoslangan bo'lib, o'sish sur'ati 150 foizdan oshishi kutilmoqda.",
-        ),
-        SlideContent(
-            layout="cards_grid",
-            category_badge="ENG YAXSHI AMALIYOTLAR",
-            title="Xalqaro Standartlar va Tajriba",
-            subtitle="Jahon miqyosida muvaffaqiyat qozongan tajribalarni qo'llash",
-            cards=[
-                CardItem(title="Xalqaro Standartlar", description="Global miqyosda tan olingan me'yorlar va qoidalarga rioya qilish.", badge="Standart"),
-                CardItem(title="Xavfsizlik Kafolati", description="Barcha jarayonlarda to'liq xavfsizlik va ma'lumotlar himoyasi.", badge="Xavfsizlik"),
-                CardItem(title="Doimiy Rivojlanish", description="Tizimni to'xtovsiz yangilab va takomillashtirib borish.", badge="KAIZEN"),
-            ],
-            speaker_speech="Biz faqat mahalliy emas, balki xalqaro eng yaxshi amaliyotlar va standartlarga tayangan holda ish yuritamiz.",
-        ),
-        SlideContent(
-            layout="comparison",
-            category_badge="TASHKILIY TAHLIL",
-            title="Qisqa vs Uzoq Muddatli Yondashuv",
-            subtitle="Strategik rejalashtirishning afzalliklari",
-            comparison_col1=ComparisonColumn(
-                header="Qisqa Muddatli Reja",
-                badge="1-Bosqich",
-                points=[
-                    "Tezkor dastlabki natijalarni ko'rish",
-                    "Joriy kamchiliklarni bartaraf etish",
-                    "Jamoani yangi tizimga o'rgatish",
-                ],
-            ),
-            comparison_col2=ComparisonColumn(
-                header="Uzoq Muddatli Strategiya",
-                badge="2-Bosqich",
-                points=[
-                    "Barqaror va mustahkam yetakchilik",
-                    "Bozor va sohada to'liq ustunlik",
-                    "Avtonom va uzluksiz tizim yaratish",
-                ],
-            ),
-            speaker_speech="Qisqa muddatli natijalar muhim, ammo bizning asosiy maqsadimiz — uzoq muddatli mustahkam barqarorlikdir.",
-        ),
-        SlideContent(
-            layout="timeline_steps",
-            category_badge="MASSHTABLASH",
-            title="Tizimni Kengaytirish Bosqichlari",
-            subtitle="Yechimni keyingi bosqichlarda masshtablash qadamlari",
-            steps=[
-                CardItem(title="Lokal Ishga Tushirish", description="Cheklangan miqyosda tizimni to'liq tekshirish.", badge="Bosqich I"),
-                CardItem(title="Samaradorlikni Tasdiqlash", description="Aniq metrikalar va foydalanuvchilar fikrini tahlil qilish.", badge="Bosqich II"),
-                CardItem(title="Resurslarni Kengaytirish", description="Katta yuklamalarga moslashtirish va quvvatni oshirish.", badge="Bosqich III"),
-                CardItem(title="To'liq Qamrov", description="Barcha yo'nalishlarda to'liq avtonom ishga tushirish.", badge="Bosqich IV"),
-            ],
-            speaker_speech="Masshtablash bosqichlarimiz puxta o'ylangan bo'lib, har bir qadam tizim barqarorligini ta'minlaydi.",
-        ),
-        SlideContent(
-            layout="cards_grid",
-            category_badge="XULOSAVIY TAVSIYALAR",
-            title="Amaliy Tavsiyalar va Maslahatlar",
-            subtitle="Kutilgan natijalarga tezroq erishish uchun muhim qoidalar",
-            cards=[
-                CardItem(title="Birinchi Qadamni Qo'yish", description="Kechiktirmasdan dastlabki sinov jarayonlarini boshlash.", badge="Tavsiya 1"),
-                CardItem(title="Jamoani Birlashtirish", description="Barcha ishtirokchilarni umumiy maqsad atrofida jipslashtirish.", badge="Tavsiya 2"),
-                CardItem(title="Doimiy Moslashuv", description="Yangi imkoniyatlar va innovatsiyalarga ochiq bo'lish.", badge="Tavsiya 3"),
-            ],
-            speaker_speech="Ushbu tavsiyalarga amal qilish orqali siz ko'zlangan marraga sezilarli darajada tezroq erishasiz.",
+            speaker_speech=spk("Kelajak istiqbollarimiz uzoq muddatli strategiyaga asoslangan bo'lib, o'sish sur'ati 150 foizdan oshishi kutilmoqda."),
         ),
     ]
 
 
-def _ensure_slide_count(presentation: PresentationContent, target_count: int, topic: str, language: str = "uz") -> PresentationContent:
+def _ensure_slide_count(
+    presentation: PresentationContent,
+    target_count: int,
+    topic: str,
+    language: str = "uz",
+    with_speech: bool = True,
+) -> PresentationContent:
     """Slaydlar soni foydalanuvchi so'ragan aniq target_count ga teng bo'lishini 100% kafolatlaydi."""
     slides = presentation.slides
     if len(slides) == target_count:
@@ -290,16 +292,15 @@ def _ensure_slide_count(presentation: PresentationContent, target_count: int, to
         presentation.slides = new_slides
         return presentation
 
-    # Agar kam bo'lsa (masalan 12 ta so'ragan, lekin 6 ta chiqqan):
+    # Agar kam bo'lsa:
     conclusion = None
     if slides and slides[-1].layout == "conclusion":
         conclusion = slides.pop()
 
-    extra_pool = _get_extra_thematic_slides(topic, language)
+    extra_pool = _get_extra_thematic_slides(topic, language, with_speech=with_speech)
     pool_idx = 0
     while len(slides) < (target_count - (1 if conclusion else 0)):
         template = extra_pool[pool_idx % len(extra_pool)]
-        # Nusxasini olib qo'shamiz
         slides.append(template.model_copy(deep=True))
         pool_idx += 1
 
@@ -317,7 +318,7 @@ def _ensure_slide_count(presentation: PresentationContent, target_count: int, to
                     CardItem(title="Katta Imkoniyatlar", description="Harakatni bugundan boshlash yetakchilik garovidir.", badge="Natija"),
                     CardItem(title="Savol-Javob", description="E'tiboringiz uchun rahmat, savollaringizni berishingiz mumkin.", badge="Aloqa"),
                 ],
-                speaker_speech="E'tiboringiz uchun katta rahmat! Agar savollaringiz bo'lsa, mamnuniyat bilan javob berishga tayyorman.",
+                speaker_speech="E'tiboringiz uchun katta rahmat! Agar savollaringiz bo'lsa, mamnuniyat bilan javob berishga tayyorman." if with_speech else None,
             )
         )
 
@@ -329,6 +330,7 @@ async def generate_presentation_with_gemini(
     topic: str,
     slide_count: int = 5,
     language: str = "uz",
+    with_speech: bool = True,
     api_key: Optional[str] = None,
 ) -> PresentationContent:
     """Gemini API orqali ko'p modelli zanjir (fallback chain) bilan taqdimot generatsiya qiladi."""
@@ -339,9 +341,8 @@ async def generate_presentation_with_gemini(
         )
 
     client = genai.Client(api_key=key)
-    prompt = build_system_prompt(topic, slide_count, language)
+    prompt = build_system_prompt(topic, slide_count, language, with_speech=with_speech)
 
-    # Bir nechta modellarni navbati bilan sinab ko'rish zanjiri
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-3.5-flash",
@@ -355,7 +356,7 @@ async def generate_presentation_with_gemini(
     last_error = None
     for model_name in models_to_try:
         try:
-            logger.info(f"Gemini {model_name} orqali {slide_count} ta slayd yaratilmoqda...")
+            logger.info(f"Gemini {model_name} orqali {slide_count} ta slayd yaratilmoqda (nutq: {with_speech})...")
             response = await client.aio.models.generate_content(
                 model=model_name,
                 contents=prompt,
@@ -368,13 +369,12 @@ async def generate_presentation_with_gemini(
             raw_text = response.text or ""
             cleaned_json = _clean_json_string(raw_text)
             presentation = PresentationContent.model_validate_json(cleaned_json)
-            return _ensure_slide_count(presentation, slide_count, topic, language)
+            return _ensure_slide_count(presentation, slide_count, topic, language, with_speech=with_speech)
         except Exception as e:
             logger.warning(f"Model {model_name} da xatolik yuz berdi: {e}. Keyingi modelga o'tilmoqda...")
             last_error = e
             continue
 
-    # Agar structured output vaqtincha ishlamasa oddiy JSON formatida sinab ko'rish
     for model_name in models_to_try[:2]:
         try:
             logger.info(f"Fallback text JSON call: {model_name}...")
@@ -388,25 +388,31 @@ async def generate_presentation_with_gemini(
             )
             cleaned_json = _clean_json_string(response.text or "{}")
             presentation = PresentationContent.model_validate_json(cleaned_json)
-            return _ensure_slide_count(presentation, slide_count, topic, language)
+            return _ensure_slide_count(presentation, slide_count, topic, language, with_speech=with_speech)
         except Exception as e:
             last_error = e
             continue
 
     logger.error(f"Barcha modellar sinab ko'rildi, oxirgi xatolik: {last_error}")
-    return generate_mock_presentation(topic, slide_count=slide_count, language=language)
+    return generate_mock_presentation(topic, slide_count=slide_count, language=language, with_speech=with_speech)
 
 
-def build_document_prompt(doc_text: str, slide_count: int, language: str = "uz") -> str:
+def build_document_prompt(doc_text: str, slide_count: int, language: str = "uz", with_speech: bool = True) -> str:
     lang_instruction = {
         "uz": "Barcha matnlar va sarlavhalar o'zbek adabiy tilida (lotin alifbosida) bo'lsin.",
         "ru": "Все тексты и заголовки должны быть на качественном русском языке.",
         "en": "All texts and headings must be in clear, professional English.",
     }.get(language, "O'zbek tilida yozing.")
 
+    speech_instruction = (
+        "Har bir slayd uchun 'speaker_speech' maydoniga spiker tinglovchilarga aytib berishi kerak bo'lgan 2-4 jumlalik jonli nutq matnini yozing."
+        if with_speech
+        else "Spiker nutqi talab qilinmaydi, 'speaker_speech' maydonini bo'sh (null) qoldiring."
+    )
+
     return f"""Siz professional taqdimotlar tahlilchisisiz.
 Quyida berilgan hujjat/maqola matnidan eng muhim asosiy g'oyalar, xulosalar, faktlar va statistikani ajratib olib, 
-aynan shu manba asosida ROPPA-ROSA {slide_count} TA SLAYDDAN IBORAT mukammal taqdimot kontentini tayyorlang.
+aynan shu manba asosida ROPPA-ROSA {slide_count} TA SLAYDDAN IBORAT va har bir slaydi turfa xil zamonaviy dizaynga ega taqdimot kontentini tayyorlang.
 
 MANBA HUJJAT MATNI:
 \"\"\"
@@ -417,10 +423,9 @@ TIL TALABI:
 {lang_instruction}
 
 MUHIM QOIDALAR:
-1. 1-slayd: Hujjatning asosiy mavzusiga bag'ishlangan "title_slide".
-2. O'rta slaydlar: Hujjatdagi muammolar, tahlillar, raqamlar ("stats_metrics"), solishtirishlar ("comparison") va bosqichlar ("timeline_steps").
-3. Oxirgi slayd: Hujjat bo'yicha yakuniy xulosalar ("conclusion").
-4. Jami roppa-rosa {slide_count} ta slayd tuzing. 'slides' massivida aniq {slide_count} ta element bo'lishi SHART.
+1. Jami roppa-rosa {slide_count} ta slayd tuzing. 'slides' massivida aniq {slide_count} ta element bo'lishi SHART.
+2. Har bir slayd mazmuniga qarab har xil layout tanlang: "title_slide", "cards_grid", "stats_metrics", "comparison", "timeline_steps", "matrix_2x2", "quote_highlight", "checklist_points", "conclusion".
+3. {speech_instruction}
 """
 
 
@@ -428,15 +433,17 @@ async def generate_presentation_from_document(
     doc_text: str,
     slide_count: int = 5,
     language: str = "uz",
+    with_speech: bool = True,
     api_key: Optional[str] = None,
 ) -> PresentationContent:
     """Foydalanuvchi yuklagan PDF yoki Word matni asosida slaydlar yaratadi."""
     key = api_key or config.GEMINI_API_KEY
+    first_line = doc_text.splitlines()[0][:30] if doc_text else "Hujjat Tahlili"
     if not key:
-        return generate_mock_presentation("Hujjat Tahlili", slide_count=slide_count, language=language)
+        return generate_mock_presentation(first_line, slide_count=slide_count, language=language, with_speech=with_speech)
 
     client = genai.Client(api_key=key)
-    prompt = build_document_prompt(doc_text, slide_count, language)
+    prompt = build_document_prompt(doc_text, slide_count, language, with_speech=with_speech)
 
     candidate_models = [
         config.GEMINI_MODEL,
@@ -447,8 +454,6 @@ async def generate_presentation_from_document(
     ]
     seen = set()
     models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
-
-    first_line = doc_text.splitlines()[0][:30] if doc_text else "Hujjat Tahlili"
 
     for model_name in models_to_try:
         try:
@@ -463,19 +468,20 @@ async def generate_presentation_from_document(
             )
             cleaned_json = _clean_json_string(response.text or "")
             presentation = PresentationContent.model_validate_json(cleaned_json)
-            return _ensure_slide_count(presentation, slide_count, first_line, language)
+            return _ensure_slide_count(presentation, slide_count, first_line, language, with_speech=with_speech)
         except Exception as e:
             logger.warning(f"generate_presentation_from_document {model_name} fallback: {e}")
             continue
 
-    return generate_mock_presentation(first_line, slide_count=slide_count, language=language)
+    return generate_mock_presentation(first_line, slide_count=slide_count, language=language, with_speech=with_speech)
 
 
-def generate_mock_presentation(topic: str, slide_count: int = 5, language: str = "uz") -> PresentationContent:
+def generate_mock_presentation(topic: str, slide_count: int = 5, language: str = "uz", with_speech: bool = True) -> PresentationContent:
     """
-    Offline sinov va API key yo'q holatlar uchun to'liq slide_count miqdoridagi yuqori sifatli slaydlar.
+    Offline sinov va API key yo'q holatlar uchun to'liq slide_count miqdoridagi turfa xil yuqori sifatli slaydlar.
     """
     short_t = topic if len(topic) < 40 else topic[:40] + "..."
+    spk = lambda s: s if with_speech else None
     base_slides = [
         SlideContent(
             layout="title_slide",
@@ -483,7 +489,7 @@ def generate_mock_presentation(topic: str, slide_count: int = 5, language: str =
             title=short_t,
             subtitle="Zamonaviy yondashuvlar, amaliy yechimlar va kelajak istiqbollari tahlili",
             highlight_takeaway="Yangi davr texnologiyalari va strategik o'sish sari qadam",
-            speaker_speech=f"Assalomu alaykum hurmatli qatnashchilar! Bugungi taqdimotimiz {short_t} mavzusiga bag'ishlanadi.",
+            speaker_speech=spk(f"Assalomu alaykum hurmatli qatnashchilar! Bugungi taqdimotimiz {short_t} mavzusiga bag'ishlanadi."),
         ),
         SlideContent(
             layout="cards_grid",
@@ -507,7 +513,17 @@ def generate_mock_presentation(topic: str, slide_count: int = 5, language: str =
                     badge="03",
                 ),
             ],
-            speaker_speech="Ushbu slaydda ko'rib turganingizdek, avtomatlashtirish, sun'iy intellekt va masshtablash eng muhim ustunlar hisoblanadi.",
+            speaker_speech=spk("Ushbu slaydda ko'rib turganingizdek, avtomatlashtirish, sun'iy intellekt va masshtablash eng muhim ustunlar hisoblanadi."),
+        ),
+        SlideContent(
+            layout="quote_highlight",
+            category_badge="MUHIM FALSAFA VA IQTIHOS",
+            title="Mavzuning Bosh Fikri",
+            subtitle="Tizimning chuqur ma'nosi va strategik ahamiyati",
+            quote_text="\"Kelajakni bashorat qilishning eng yaxshi usuli — uni bugundan boshlab o'z qo'llaringiz bilan yaratishdir.\"",
+            quote_author="Strategik Ekspert Fikri",
+            highlight_takeaway="Rivojlanish va innovatsiyalar to'xtovsiz harakat talab qiladi.",
+            speaker_speech=spk("Ushbu fikr bizning barcha sa'y-harakatlarimiz negizini tashkil etadi."),
         ),
         SlideContent(
             layout="stats_metrics",
@@ -536,7 +552,7 @@ def generate_mock_presentation(topic: str, slide_count: int = 5, language: str =
                     description="Xatoliklar ehtimolini minimal darajaga tushirish",
                 ),
             ],
-            speaker_speech="Statistika shuni ko'rsatmoqdaki, samaradorlik 85 foizga oshgan va jarayonlar 3.4 barobar tezlashgan.",
+            speaker_speech=spk("Statistika shuni ko'rsatmoqdaki, samaradorlik 85 foizga oshgan va jarayonlar 3.4 barobar tezlashgan."),
         ),
         SlideContent(
             layout="comparison",
@@ -563,7 +579,20 @@ def generate_mock_presentation(topic: str, slide_count: int = 5, language: str =
                     "Har qanday o'zgarishlarga tezkor moslashuv",
                 ],
             ),
-            speaker_speech="An'anaviy usul bilan zamonaviy yechim o'rtasidagi farq yaqqol ko'rinib turibdi. Innovatsiyalar vaqt va mablag'ni tejaydi.",
+            speaker_speech=spk("An'anaviy usul bilan zamonaviy yechim o'rtasidagi farq yaqqol ko'rinib turibdi. Innovatsiyalar vaqt va mablag'ni tejaydi."),
+        ),
+        SlideContent(
+            layout="matrix_2x2",
+            category_badge="4 TA ASOSIY USTUN",
+            title="Tizimning Muvozanatli Matritsasi",
+            subtitle="To'rtta asosiy sohada muvaffaqiyatga erishish parametrlari",
+            matrix_items=[
+                CardItem(title="Kadrlar Sifati", description="Mutaxassislar malakasi va mahorati.", badge="01. Kadr"),
+                CardItem(title="Texnologiya", description="Ilg'or uskunalar va dasturiy ta'minot.", badge="02. IT"),
+                CardItem(title="Moliyaviy Nazorat", description="Hisob-kitoblar va investitsiya samaradorligi.", badge="03. Moliya"),
+                CardItem(title="Mijozlar Qoniqishi", description="Foydalanuvchilar ishonchi va sodiqligi.", badge="04. Natija"),
+            ],
+            speaker_speech=spk("To'rtta asosiy ustunimiz har bir yo'nalishda muvozanatni ta'minlaydi."),
         ),
         SlideContent(
             layout="timeline_steps",
@@ -592,7 +621,20 @@ def generate_mock_presentation(topic: str, slide_count: int = 5, language: str =
                     badge="4-Bosqich",
                 ),
             ],
-            speaker_speech="Rejamiz to'rtta tizimli bosqichga bo'lingan bo'lib, har bir qadam puxta hisob-kitoblarga asoslangan.",
+            speaker_speech=spk("Rejamiz to'rtta tizimli bosqichga bo'lingan bo'lib, har bir qadam puxta hisob-kitoblarga asoslangan."),
+        ),
+        SlideContent(
+            layout="checklist_points",
+            category_badge="AMALIY TAVSIYALAR",
+            title="Amaliy Harakatlar Ro'yxati",
+            subtitle="Rejani muvaffaqiyatli amalga oshirish qoidalari",
+            checklist=[
+                "Barcha jarayonlarni aniq metrikalar orqali o'lchab borish",
+                "Jamoaviy mas'uliyat va muntazam sinovlar o'tkazish",
+                "Xavfsizlik va barqarorlik talablariga rioya qilish",
+                "Olingan natijalarni tahlil qilib doimiy takomillashish",
+            ],
+            speaker_speech=spk("Ushbu qoidalarga amal qilgan holda, har qanday to'siqni yengib o'tish mumkin."),
         ),
         SlideContent(
             layout="conclusion",
@@ -612,9 +654,9 @@ def generate_mock_presentation(topic: str, slide_count: int = 5, language: str =
                     badge="Aloqa",
                 ),
             ],
-            speaker_speech="Xulosa qilib aytganda, bugungi imkoniyatlardan unumli foydalanish ertangi muvaffaqiyatimiz garovidir. E'tiboringiz uchun rahmat!",
+            speaker_speech=spk("Xulosa qilib aytganda, bugungi imkoniyatlardan unumli foydalanish ertangi muvaffaqiyatimiz garovidir. E'tiboringiz uchun rahmat!"),
         ),
     ]
 
     init_pres = PresentationContent(topic=topic, language=language, slides=base_slides)
-    return _ensure_slide_count(init_pres, slide_count, topic, language)
+    return _ensure_slide_count(init_pres, slide_count, topic, language, with_speech=with_speech)

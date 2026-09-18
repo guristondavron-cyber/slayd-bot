@@ -49,6 +49,22 @@ THEMES: Dict[str, ColorTheme] = {
         card_border=(51, 65, 85),    # Slate 700
         dark_mode=True,
     ),
+    "cyberpunk": ColorTheme(
+        id="cyberpunk",
+        name="Cyberpunk (Neon Pink & Cyan)",
+        emoji="⚡️",
+        bg_color=(13, 10, 26),       # Deep Violet Black
+        card_bg=(28, 20, 52),        # Dark Purple Card
+        primary=(244, 63, 94),       # Neon Rose 500
+        secondary=(34, 211, 238),    # Neon Cyan 400
+        text_title=(255, 255, 255),  # Pure White
+        text_body=(241, 232, 254),   # Soft Lavender
+        text_muted=(168, 139, 214),  # Muted Purple
+        badge_bg=(131, 24, 67),      # Deep Magenta
+        badge_text=(254, 205, 211),  # Light Rose
+        card_border=(76, 29, 149),   # Violet 900
+        dark_mode=True,
+    ),
     "corporate_blue": ColorTheme(
         id="corporate_blue",
         name="Corporate Blue (Biznes)",
@@ -67,7 +83,7 @@ THEMES: Dict[str, ColorTheme] = {
     ),
     "emerald_green": ColorTheme(
         id="emerald_green",
-        name="Emerald Green (Yashil)",
+        name="Emerald Green (Zumrad)",
         emoji="🌿",
         bg_color=(6, 44, 34),         # Deep Emerald
         card_bg=(13, 63, 50),         # Dark Emerald Card
@@ -83,7 +99,7 @@ THEMES: Dict[str, ColorTheme] = {
     ),
     "modern_coral": ColorTheme(
         id="modern_coral",
-        name="Modern Sunset (Koral)",
+        name="Modern Sunset (Koral & Oltin)",
         emoji="🌅",
         bg_color=(24, 24, 27),        # Zinc 900
         card_bg=(39, 39, 42),         # Zinc 800
@@ -99,8 +115,8 @@ THEMES: Dict[str, ColorTheme] = {
     ),
     "clean_minimal": ColorTheme(
         id="clean_minimal",
-        name="Clean Minimal (Oq & Binafsha)",
-        emoji="⚪",
+        name="Silicon Valley (Oq & Indigo)",
+        emoji="☀️",
         bg_color=(250, 250, 250),     # Neutral 50
         card_bg=(255, 255, 255),      # White
         primary=(79, 70, 229),        # Indigo 600
@@ -113,9 +129,73 @@ THEMES: Dict[str, ColorTheme] = {
         card_border=(229, 231, 235),  # Gray 200
         dark_mode=False,
     ),
+    "warm_editorial": ColorTheme(
+        id="warm_editorial",
+        name="Warm Editorial (Krem & Qahva)",
+        emoji="☕️",
+        bg_color=(245, 241, 232),     # Warm Cream/Linen
+        card_bg=(255, 253, 249),      # Soft Ivory Card
+        primary=(180, 83, 9),         # Amber 700
+        secondary=(120, 53, 15),      # Warm Russet
+        text_title=(41, 37, 36),      # Stone 900
+        text_body=(68, 64, 60),       # Stone 700
+        text_muted=(120, 113, 108),   # Stone 500
+        badge_bg=(254, 243, 199),     # Amber 100
+        badge_text=(146, 64, 14),     # Amber 800
+        card_border=(231, 229, 220),  # Stone 200
+        dark_mode=False,
+    ),
+    "midnight_gold": ColorTheme(
+        id="midnight_gold",
+        name="Midnight Gold (Qora & Oltin)",
+        emoji="👑",
+        bg_color=(12, 12, 15),        # True Black 950
+        card_bg=(24, 24, 29),         # Deep Onyx Card
+        primary=(234, 179, 8),        # Champagne Gold 500
+        secondary=(250, 204, 21),     # Yellow 400
+        text_title=(254, 252, 232),   # Yellow 50
+        text_body=(229, 231, 235),    # Gray 200
+        text_muted=(156, 163, 175),   # Gray 400
+        badge_bg=(113, 63, 18),       # Dark Gold
+        badge_text=(254, 240, 138),   # Light Gold
+        card_border=(66, 52, 22),     # Gold Muted Border
+        dark_mode=True,
+    ),
+    "sapphire_ocean": ColorTheme(
+        id="sapphire_ocean",
+        name="Sapphire Ocean (Chuqur Moviy)",
+        emoji="🌊",
+        bg_color=(10, 25, 47),        # Navy 950
+        card_bg=(23, 42, 69),         # Ocean Navy Card
+        primary=(100, 255, 218),      # Aquamarine Neon
+        secondary=(56, 189, 248),     # Sky 400
+        text_title=(230, 241, 255),   # Bright Ice
+        text_body=(204, 214, 246),    # Soft Slate Blue
+        text_muted=(136, 146, 176),   # Muted Blue
+        badge_bg=(17, 34, 64),        # Deep Blue
+        badge_text=(100, 255, 218),   # Aqua
+        card_border=(35, 53, 84),     # Border Navy
+        dark_mode=True,
+    ),
+    "ruby_luxury": ColorTheme(
+        id="ruby_luxury",
+        name="Ruby Luxury (Yoqut Qizil)",
+        emoji="🍷",
+        bg_color=(30, 10, 18),        # Deep Ruby Wine
+        card_bg=(48, 18, 29),         # Ruby Card
+        primary=(244, 63, 94),        # Rose 500
+        secondary=(251, 113, 133),    # Rose 400
+        text_title=(255, 241, 242),   # Rose 50
+        text_body=(254, 205, 211),    # Rose 200
+        text_muted=(225, 29, 72),     # Rose 600
+        badge_bg=(76, 5, 25),         # Deep Burgundy
+        badge_text=(254, 226, 226),   # Pale Rose
+        card_border=(102, 14, 38),    # Burgundy Border
+        dark_mode=True,
+    ),
 }
 
 DEFAULT_THEME = "dark_tech"
 DEFAULT_SLIDE_COUNT = 5
-MAX_SLIDE_COUNT = 15
-MIN_SLIDE_COUNT = 3
+MAX_SLIDE_COUNT = 25
+MIN_SLIDE_COUNT = 1

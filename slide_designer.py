@@ -53,6 +53,12 @@ def create_presentation_file(
             _render_comparison_slide(slide, slide_data, theme, idx + 1, total_slides)
         elif slide_data.layout == "timeline_steps" and slide_data.steps:
             _render_timeline_slide(slide, slide_data, theme, idx + 1, total_slides)
+        elif slide_data.layout == "matrix_2x2":
+            _render_matrix_slide(slide, slide_data, theme, idx + 1, total_slides)
+        elif slide_data.layout == "quote_highlight":
+            _render_quote_slide(slide, slide_data, theme, idx + 1, total_slides)
+        elif slide_data.layout == "checklist_points":
+            _render_checklist_slide(slide, slide_data, theme, idx + 1, total_slides)
         elif slide_data.layout == "conclusion":
             _render_conclusion_slide(slide, slide_data, theme, idx + 1, total_slides)
         else:
@@ -98,8 +104,36 @@ def generate_speaker_speech_file(content: PresentationContent, output_path: Opti
         if s.subtitle:
             lines.append(f"   Izoh: {s.subtitle}")
         speech = getattr(s, "speaker_speech", None) or getattr(s, "speaker_notes", None) or "Ushbu slayddagi faktlar va asosiy tushunchalarni tinglovchilarga tushuntirib bering."
-        lines.append(f"   💬 Nutq matni: \"{speech}\"")
-        lines.append("-" * 50)
+        lines.append(f"   🗣 NUTQ MATNI:")
+        lines.append(f"   \"{speech}\"")
+        lines.append("")
+        if s.cards:
+            lines.append("   📋 Asosiy punktlar:")
+            for c in s.cards:
+                lines.append(f"   • {c.title}: {c.description}")
+        elif s.stats:
+            lines.append("   📊 Ko'rsatkichlar:")
+            for st in s.stats:
+                lines.append(f"   • {st.number} - {st.label} ({st.description or ''})")
+        elif s.comparison_col1 and s.comparison_col2:
+            lines.append("   ⚖️ Taqqoslash:")
+            lines.append(f"     [{s.comparison_col1.header}]: {', '.join(s.comparison_col1.points)}")
+            lines.append(f"     [{s.comparison_col2.header}]: {', '.join(s.comparison_col2.points)}")
+        elif s.steps:
+            lines.append("   🚀 Ketma-ket qadamlar:")
+            for step in s.steps:
+                lines.append(f"   • {step.title}: {step.description}")
+        elif getattr(s, "matrix_items", None):
+            lines.append("   🔲 Matritsa yo'nalishlari:")
+            for mi in s.matrix_items:
+                lines.append(f"   • {mi.title}: {mi.description}")
+        elif getattr(s, "checklist", None):
+            lines.append("   ✅ Muhim qoidalar / Tekshiruv:")
+            for cl in s.checklist:
+                lines.append(f"   ✓ {cl}")
+        elif getattr(s, "quote_text", None):
+            lines.append(f"   💬 Iqtibos: \"{s.quote_text}\" ({getattr(s, 'quote_author', '') or ''})")
+        lines.append("-" * 60)
         lines.append("")
 
     if not output_path:
@@ -665,3 +699,284 @@ def _render_conclusion_slide(slide, slide_data: SlideContent, theme: ColorTheme,
         p_d.font.name = FONT_FAMILY_BODY
         p_d.font.color.rgb = RGBColor(*theme.text_body)
         p_d.space_before = Pt(4)
+
+
+def _render_matrix_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int):
+    """2x2 Quadrant matritsa slaydi (4 ta bo'lim/yo'nalish)."""
+    _render_header(slide, slide_data, theme, current_num, total_slides)
+
+    items = slide_data.matrix_items or slide_data.cards or []
+    default_badges = ["01", "02", "03", "04"]
+    default_titles = ["Strategik Yo'nalish", "Innovatsion Yechim", "Resurslar & Imkoniyat", "Natijadorlik & O'sish"]
+    default_descs = [
+        "Bozor tahlili va yangi imkoniyatlarni chuqur o'rganish orqali to'g'ri strategiya tanlash.",
+        "Zamonaviy AI va raqamli texnologiyalarni amaliyotga joriy etish.",
+        "Mavjud moddiy, texnik va insoniy resurslarni maqsadli taqsimlash.",
+        "Uzoq muddatli barqarorlik va yuqori samaradorlik ko'rsatkichlariga erishish.",
+    ]
+
+    full_items = []
+    for i in range(4):
+        if i < len(items):
+            full_items.append(items[i])
+        else:
+            full_items.append(CardItem(title=default_titles[i], description=default_descs[i], badge=default_badges[i]))
+
+    col_w = Inches(5.6)
+    row_h = Inches(1.95)
+    gap_x = Inches(0.3)
+    gap_y = Inches(0.25)
+    start_x = Inches(0.9)
+    start_y = Inches(2.45)
+
+    positions = [
+        (start_x, start_y),                          # Top-left
+        (start_x + col_w + gap_x, start_y),          # Top-right
+        (start_x, start_y + row_h + gap_y),          # Bottom-left
+        (start_x + col_w + gap_x, start_y + row_h + gap_y),  # Bottom-right
+    ]
+
+    for idx, (c_left, c_top) in enumerate(positions):
+        item = full_items[idx]
+
+        # Karta foni
+        card = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE,
+            c_left,
+            c_top,
+            col_w,
+            row_h,
+        )
+        card.fill.solid()
+        card.fill.fore_color.rgb = RGBColor(*theme.card_bg)
+        card.line.color.rgb = RGBColor(*theme.card_border)
+        card.line.width = Pt(1.5)
+
+        # Tepasida kichik rangli badge pill
+        badge_val = item.badge or f"0{idx+1}"
+        badge_shape = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE,
+            c_left + Inches(0.3),
+            c_top + Inches(0.2),
+            Inches(1.2),
+            Inches(0.32),
+        )
+        badge_shape.fill.solid()
+        badge_shape.fill.fore_color.rgb = RGBColor(*theme.badge_bg)
+        badge_shape.line.color.rgb = RGBColor(*theme.primary)
+        badge_shape.line.width = Pt(1)
+
+        tf_b = badge_shape.text_frame
+        tf_b.word_wrap = True
+        p_b = tf_b.paragraphs[0]
+        p_b.text = badge_val.upper()
+        p_b.font.size = Pt(10)
+        p_b.font.bold = True
+        p_b.font.name = FONT_FAMILY_TITLE
+        p_b.font.color.rgb = RGBColor(*theme.badge_text)
+        p_b.alignment = PP_ALIGN.CENTER
+
+        # Matn konteyneri
+        tbox = slide.shapes.add_textbox(
+            c_left + Inches(0.3),
+            c_top + Inches(0.58),
+            col_w - Inches(0.6),
+            row_h - Inches(0.68),
+        )
+        tf = tbox.text_frame
+        tf.word_wrap = True
+        tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+
+        p_title = tf.paragraphs[0]
+        p_title.text = item.title
+        p_title.font.size = Pt(15)
+        p_title.font.bold = True
+        p_title.font.name = FONT_FAMILY_TITLE
+        p_title.font.color.rgb = RGBColor(*theme.text_title)
+
+        p_desc = tf.add_paragraph()
+        p_desc.text = item.description
+        p_desc.font.size = Pt(12)
+        p_desc.font.name = FONT_FAMILY_BODY
+        p_desc.font.color.rgb = RGBColor(*theme.text_body)
+        p_desc.space_before = Pt(4)
+
+
+def _render_quote_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int):
+    """Markazlashtirilgan katta iqtibos / asosiy tezis slaydi."""
+    _render_header(slide, slide_data, theme, current_num, total_slides)
+
+    card_w = Inches(11.5)
+    card_h = Inches(4.15)
+    card_left = Inches(0.9)
+    card_top = Inches(2.45)
+
+    # Katta qabul qiluvchi karta
+    card = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        card_left,
+        card_top,
+        card_w,
+        card_h,
+    )
+    card.fill.solid()
+    card.fill.fore_color.rgb = RGBColor(*theme.card_bg)
+    card.line.color.rgb = RGBColor(*theme.primary)
+    card.line.width = Pt(2)
+
+    # Chap tomondagi vertikal dekorativ chiziq
+    left_accent = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        card_left + Inches(0.5),
+        card_top + Inches(0.5),
+        Inches(0.12),
+        card_h - Inches(1.0),
+    )
+    left_accent.fill.solid()
+    left_accent.fill.fore_color.rgb = RGBColor(*theme.primary)
+    left_accent.line.fill.background()
+
+    # Katta tirnoq belgisi (decorative quote icon)
+    q_icon_box = slide.shapes.add_textbox(
+        card_left + Inches(0.85),
+        card_top + Inches(0.2),
+        Inches(1.5),
+        Inches(1.0),
+    )
+    tf_q = q_icon_box.text_frame
+    p_q = tf_q.paragraphs[0]
+    p_q.text = "“"
+    p_q.font.size = Pt(72)
+    p_q.font.bold = True
+    p_q.font.name = FONT_FAMILY_TITLE
+    p_q.font.color.rgb = RGBColor(*theme.secondary)
+
+    # Iqtibos matni
+    quote_body = slide_data.quote_text or slide_data.highlight_takeaway or slide_data.subtitle or slide_data.title
+    tbox = slide.shapes.add_textbox(
+        card_left + Inches(0.9),
+        card_top + Inches(1.3),
+        card_w - Inches(1.5),
+        Inches(1.8),
+    )
+    tf = tbox.text_frame
+    tf.word_wrap = True
+    tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+
+    p_text = tf.paragraphs[0]
+    p_text.text = f'"{quote_body}"'
+    p_text.font.size = Pt(22)
+    p_text.font.bold = True
+    p_text.font.italic = True
+    p_text.font.name = FONT_FAMILY_TITLE
+    p_text.font.color.rgb = RGBColor(*theme.text_title)
+
+    # Muallif / Manba tegi
+    author = slide_data.quote_author or "Strategik xulosa va tahliliy qarash"
+    badge_shape = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        card_left + Inches(0.9),
+        card_top + Inches(3.3),
+        Inches(4.5),
+        Inches(0.45),
+    )
+    badge_shape.fill.solid()
+    badge_shape.fill.fore_color.rgb = RGBColor(*theme.badge_bg)
+    badge_shape.line.color.rgb = RGBColor(*theme.secondary)
+    badge_shape.line.width = Pt(1)
+
+    tf_ab = badge_shape.text_frame
+    tf_ab.word_wrap = True
+    p_ab = tf_ab.paragraphs[0]
+    p_ab.text = f"—  {author}"
+    p_ab.font.size = Pt(12)
+    p_ab.font.bold = True
+    p_ab.font.name = FONT_FAMILY_TITLE
+    p_ab.font.color.rgb = RGBColor(*theme.secondary)
+    p_ab.alignment = PP_ALIGN.CENTER
+
+
+def _render_checklist_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int):
+    """Checklist va tasdiqlangan qoidalar/punktlar slaydi."""
+    _render_header(slide, slide_data, theme, current_num, total_slides)
+
+    items = slide_data.checklist or []
+    if not items and slide_data.cards:
+        items = [f"{c.title}: {c.description}" for c in slide_data.cards]
+    if not items:
+        items = [
+            "Barcha tahliliy ko'rsatkichlar va ma'lumotlar to'liq tekshirildi",
+            "Belgilangan strategik reja va maqsadlarga to'liq moslik ta'minlandi",
+            "Potentsial xatarlar oldindan baholanib, chora-tadbirlar ishlab chiqildi",
+            "Keyingi bosqichga o'tish uchun barcha zaruriy resurslar va jamoa tayyor",
+        ]
+
+    count = min(len(items), 5)
+    total_w = Inches(11.5)
+    total_h = Inches(4.15)
+    gap = Inches(0.18)
+    row_h = (total_h - gap * (count - 1)) / count
+    left = Inches(0.9)
+    top_base = Inches(2.45)
+
+    for i in range(count):
+        item_text = items[i]
+        row_top = top_base + i * (row_h + gap)
+
+        # Qator foni kartasi
+        row_card = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE,
+            left,
+            row_top,
+            total_w,
+            row_h,
+        )
+        row_card.fill.solid()
+        row_card.fill.fore_color.rgb = RGBColor(*theme.card_bg)
+        row_card.line.color.rgb = RGBColor(*theme.card_border)
+        row_card.line.width = Pt(1)
+
+        # Chap tomondagi [ ✓ ] belgisi nishoni
+        icon_w = Inches(0.48)
+        icon_h = Inches(0.42)
+        icon_top = row_top + (row_h - icon_h) / 2
+        icon_left = left + Inches(0.3)
+
+        icon_badge = slide.shapes.add_shape(
+            MSO_SHAPE.ROUNDED_RECTANGLE,
+            icon_left,
+            icon_top,
+            icon_w,
+            icon_h,
+        )
+        icon_badge.fill.solid()
+        icon_badge.fill.fore_color.rgb = RGBColor(*theme.badge_bg)
+        icon_badge.line.color.rgb = RGBColor(*theme.primary)
+        icon_badge.line.width = Pt(1.5)
+
+        tf_i = icon_badge.text_frame
+        p_i = tf_i.paragraphs[0]
+        p_i.text = "✓"
+        p_i.font.size = Pt(14)
+        p_i.font.bold = True
+        p_i.font.color.rgb = RGBColor(*theme.primary)
+        p_i.alignment = PP_ALIGN.CENTER
+
+        # Matn konteyneri
+        text_w = total_w - Inches(1.2)
+        tbox = slide.shapes.add_textbox(
+            left + Inches(0.95),
+            row_top + Inches(0.1),
+            text_w,
+            row_h - Inches(0.2),
+        )
+        tf = tbox.text_frame
+        tf.word_wrap = True
+        tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+
+        p_t = tf.paragraphs[0]
+        p_t.text = item_text
+        p_t.font.size = Pt(14)
+        p_t.font.name = FONT_FAMILY_BODY
+        p_t.font.color.rgb = RGBColor(*theme.text_title)
+

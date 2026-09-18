@@ -57,6 +57,7 @@ class SlideCreationState(StatesGroup):
     waiting_for_slide_count = State()
     waiting_for_custom_slide_count = State()
     waiting_for_theme = State()
+    waiting_for_speech_choice = State()
 
 
 class UserPromoState(StatesGroup):
@@ -208,6 +209,22 @@ def theme_selection_keyboard() -> InlineKeyboardMarkup:
         buttons.append(row)
     buttons.append([InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")])
     return InlineKeyboardMarkup(inline_keyboard=buttons)
+
+
+def speech_selection_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🎤 Ha, nutq matni kerak", callback_data="speech_yes"),
+            ],
+            [
+                InlineKeyboardButton(text="⚡️ Yo'q, faqat slaydlar yetarli", callback_data="speech_no"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel"),
+            ],
+        ]
+    )
 
 
 def admin_menu_keyboard() -> InlineKeyboardMarkup:
@@ -598,25 +615,50 @@ async def process_slide_count(callback: CallbackQuery, state: FSMContext):
 
 
 @router.callback_query(F.data.startswith("theme_"), SlideCreationState.waiting_for_theme)
-async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext):
-    await safe_callback_answer(callback, "Generatsiya boshlandi...")
+async def process_theme_selected(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
     theme_key = callback.data.split("theme_")[1]
+    await state.update_data(theme_key=theme_key)
+    await state.set_state(SlideCreationState.waiting_for_speech_choice)
+
+    data = await state.get_data()
+    topic = data.get("topic", "")
+    slide_count = data.get("slide_count", 5)
+    theme_info = config.THEMES.get(theme_key, config.THEMES[config.DEFAULT_THEME])
+
+    text = (
+        f"📌 <b>Mavzu:</b> <i>{topic}</i>\n"
+        f"📊 <b>Slaydlar soni:</b> {slide_count} ta\n"
+        f"🎨 <b>Tanlangan dizayn:</b> {theme_info.emoji} {theme_info.name}\n\n"
+        f"🎤 <b>Spiker nutqi (ma'ruza matni) kerakmi?</b>\n\n"
+        f"Taqdimotda so'zlash uchun har bir slaydga alohida tayyor nutq matni tuzilsinmi?\n"
+        f"<i>(Agar «Ha» tanlansa, har bir slayd tagida va alohida 📄 Nutq_matni.txt faylida nutq taqdim etiladi)</i>"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=speech_selection_keyboard())
+
+
+@router.callback_query(F.data.in_(["speech_yes", "speech_no"]), SlideCreationState.waiting_for_speech_choice)
+async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSMContext):
+    with_speech = (callback.data == "speech_yes")
+    await safe_callback_answer(callback, "Generatsiya boshlandi...")
     data = await state.get_data()
     topic = data.get("topic", "Taqdimot")
     slide_count = data.get("slide_count", 5)
     language = data.get("language", "uz")
+    theme_key = data.get("theme_key", config.DEFAULT_THEME)
     is_doc = data.get("is_doc", False)
     doc_text = data.get("doc_text", "")
     theme_info = config.THEMES.get(theme_key, config.THEMES[config.DEFAULT_THEME])
 
     await state.clear()
 
+    speech_desc = "va spiker nutqi" if with_speech else "(faqat slaydlar)"
     loading_text = (
         f"⏳ <b>Taqdimot tayyorlanmoqda...</b>\n\n"
         f"📌 <b>Mavzu:</b> {topic}\n"
         f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n"
         f"📊 <b>Hajmi:</b> {slide_count} ta slayd\n\n"
-        f"1️⃣ <i>AI orqali reja, matnlar va spiker nutqi tuzilmoqda...</i>"
+        f"1️⃣ <i>AI orqali har xil dizayndagi reja {speech_desc} tuzilmoqda...</i>"
     )
     try:
         status_msg = await callback.message.edit_text(loading_text, parse_mode="HTML")
@@ -630,16 +672,18 @@ async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext)
                 doc_text=doc_text,
                 slide_count=slide_count,
                 language=language,
+                with_speech=with_speech,
             )
         else:
             presentation_content = await generate_presentation_with_gemini(
                 topic=topic,
                 slide_count=slide_count,
                 language=language,
+                with_speech=with_speech,
             )
     except Exception as e:
         logger.error(f"Gemini generatsiyasida xatolik: {e}")
-        presentation_content = generate_mock_presentation(topic, slide_count=slide_count)
+        presentation_content = generate_mock_presentation(topic, slide_count=slide_count, with_speech=with_speech)
 
     try:
         try:
@@ -647,8 +691,8 @@ async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext)
                 f"⏳ <b>Taqdimot tayyorlanmoqda...</b>\n\n"
                 f"📌 <b>Mavzu:</b> {topic}\n"
                 f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n\n"
-                f"✅ <i>Kontent va nutq tayyorlandi!</i>\n"
-                f"2️⃣ <i>16:9 formatda grafikalar chizilib, spiker nutqi biriktirilmoqda...</i>",
+                f"✅ <i>Kontent tayyorlandi!</i>\n"
+                f"2️⃣ <i>16:9 formatda zamonaviy grafikalar chizilmoqda...</i>",
                 parse_mode="HTML",
             )
         except Exception:
@@ -660,8 +704,10 @@ async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext)
             theme_key=theme_key,
         )
 
-        # 2. Spiker nutqi faylini yaratish
-        speech_file_path = generate_speaker_speech_file(presentation_content)
+        # 2. Spiker nutqi faylini yaratish (faqat agar kerak bo'lsa)
+        speech_file_path = None
+        if with_speech:
+            speech_file_path = generate_speaker_speech_file(presentation_content)
 
         user_id = callback.from_user.id
         database.use_slide(user_id, is_admin(user_id))
@@ -670,14 +716,21 @@ async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext)
         user = database.get_user(user_id)
         left = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left']} ta"
 
+        speech_status_line = (
+            "🎤 <b>Spiker nutqi:</b> Alohida faylda va slaydlar ostida ilova qilindi.\n\n"
+            if with_speech
+            else "⚡️ <b>Spiker nutqi:</b> O'chirilgan (faqat slaydlar).\n\n"
+        )
+
         caption = (
             f"🎉 <b>Taqdimotingiz tayyor!</b>\n\n"
             f"📌 <b>Mavzu:</b> {topic}\n"
-            f"📊 <b>Slaydlar:</b> {len(presentation_content.slides)} ta\n"
+            f"📊 <b>Slaydlar:</b> {len(presentation_content.slides)} ta (Har biri individual dizaynda)\n"
             f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n"
             f"📁 <b>Format:</b> PowerPoint (.pptx)\n"
             f"💎 <b>Qolgan balansingiz:</b> {left}\n\n"
-            f"💡 <i>Har bir slayd ostida va alohida faylda spiker nutqi (gapirish matni) mavjud.</i>"
+            f"{speech_status_line}"
+            f"💡 <i>Slaydlarni istalgan PowerPoint dasturida ochib, bemalol tahrirlashingiz mumkin.</i>"
         )
 
         # PowerPoint faylni yuborish
@@ -688,13 +741,14 @@ async def process_theme_and_generate(callback: CallbackQuery, state: FSMContext)
             parse_mode="HTML",
         )
 
-        # Spiker nutqi faylini yuborish
-        speech_doc = FSInputFile(speech_file_path, filename=os.path.basename(speech_file_path))
-        await callback.message.answer_document(
-            document=speech_doc,
-            caption="🎤 <b>Taqdimotda so'zlash uchun to'liq Spiker Nutqi (Ma'ruza matni)</b>",
-            parse_mode="HTML",
-        )
+        # Spiker nutqi faylini yuborish (faqat agar tanlangan bo'lsa)
+        if with_speech and speech_file_path and os.path.exists(speech_file_path):
+            speech_doc = FSInputFile(speech_file_path, filename=os.path.basename(speech_file_path))
+            await callback.message.answer_document(
+                document=speech_doc,
+                caption="🎤 <b>Taqdimotda so'zlash uchun to'liq Spiker Nutqi (Ma'ruza matni)</b>",
+                parse_mode="HTML",
+            )
 
         try:
             await status_msg.delete()
@@ -1287,12 +1341,17 @@ async def cb_admin_stats(callback: CallbackQuery):
 async def cb_themes_gallery(callback: CallbackQuery):
     await safe_callback_answer(callback)
     text = (
-        "🎨 <b>Mavjud Professional Dizayn Mavzulari:</b>\n\n"
-        "🌙 <b>Dark Tech:</b> To'q kulrang/qora fon, neon moviy va indigo elementlar. IT, startaplar va zamonaviy texnologiyalar uchun ideal.\n\n"
-        "💼 <b>Corporate Blue:</b> Klassik oppoq fon, qirollik ko'k va moviy ranglar. Biznes, moliya va rasmiy taqdimotlar uchun.\n\n"
-        "🌿 <b>Emerald Green:</b> To'q zumrad fon, yorqin yashil elementlar. Ekologiya, ta'lim, sog'liqni saqlash va o'sish mavzulari uchun.\n\n"
-        "🌅 <b>Modern Sunset:</b> To'q zamonaviy fon, jozibali koral va to'q sariq aksentlar. Marketing va ijodiy taqdimotlar uchun.\n\n"
-        "⚪ <b>Clean Minimal:</b> Qoramtir matnlar va binafsharang urg'ular bilan toza oppoq minimalist dizayn."
+        "🎨 <b>Mavjud 10 xil Professional Dizayn Mavzulari:</b>\n\n"
+        "🌙 <b>Dark Tech:</b> To'q fon, neon moviy va indigo aksentlar (IT, texnologiya).\n"
+        "⚡️ <b>Cyberpunk:</b> To'q binafsha fon, neon pushti va och firuza elementlar.\n"
+        "💼 <b>Corporate Blue:</b> Oq fon, qirollik ko'k ranglar (Biznes va rasmiy).\n"
+        "🌿 <b>Emerald Green:</b> To'q zumrad fon, yorqin yashil elementlar (Ta'lim va ekologiya).\n"
+        "🌅 <b>Modern Sunset:</b> To'q zamonaviy fon, koral va oltin aksentlar (Kreativ).\n"
+        "☀️ <b>Silicon Valley:</b> Oq toza fon, indigo va binafsharang (Startaplar).\n"
+        "☕️ <b>Warm Editorial:</b> Iliq krem fon, qahva va amber ranglar (Gumanitar va hisobot).\n"
+        "👑 <b>Midnight Gold:</b> Qora chuqur fon, shohona oltin va sariq aksentlar (Premium).\n"
+        "🌊 <b>Sapphire Ocean:</b> To'q okean moviyligi, yorqin akvamarin neon ranglar.\n"
+        "🍷 <b>Ruby Luxury:</b> To'q yoqut qizil fon, nafis pushti aksentlar (Eksklyuziv)."
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
