@@ -1,118 +1,253 @@
+import datetime
 import os
 import sqlite3
 from typing import Dict, Any, List, Optional, Tuple
 
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+IS_POSTGRES = bool(DATABASE_URL and DATABASE_URL.startswith("postgresql://"))
+
+if IS_POSTGRES:
+    try:
+        import psycopg2
+        from psycopg2.extras import RealDictCursor
+    except ImportError:
+        IS_POSTGRES = False
+
 DB_PATH = os.path.join(os.path.dirname(__file__), "bot_database.db")
 
 
-def get_connection():
-    conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    return conn
+class DBConnection:
+    """SQLite va PostgreSQL uchun umumiy ulanish va kursor boshqaruvi."""
+
+    def __init__(self):
+        self.is_postgres = IS_POSTGRES
+        if self.is_postgres:
+            self.conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+        else:
+            self.conn = sqlite3.connect(DB_PATH)
+            self.conn.row_factory = sqlite3.Row
+
+    def cursor(self):
+        return DBCursor(self.conn.cursor(), self.is_postgres)
+
+    def commit(self):
+        self.conn.commit()
+
+    def close(self):
+        self.conn.close()
+
+
+class DBCursor:
+    def __init__(self, raw_cursor, is_postgres: bool):
+        self.cursor = raw_cursor
+        self.is_postgres = is_postgres
+
+    def execute(self, sql: str, params: Optional[Tuple[Any, ...]] = None):
+        if self.is_postgres:
+            sql = sql.replace("?", "%s")
+        if params is not None:
+            return self.cursor.execute(sql, params)
+        return self.cursor.execute(sql)
+
+    def fetchone(self):
+        return self.cursor.fetchone()
+
+    def fetchall(self):
+        return self.cursor.fetchall()
+
+    @property
+    def rowcount(self):
+        return self.cursor.rowcount
+
+
+def get_connection() -> DBConnection:
+    return DBConnection()
 
 
 def init_db():
-    """Barcha jadvallarni va sozlamalarni yaratadi / yangilaydi."""
+    """Barcha jadvallarni va sozlamalarni yaratadi / yangilaydi (SQLite yoki PostgreSQL)."""
     conn = get_connection()
     cursor = conn.cursor()
 
-    # Foydalanuvchilar jadvali
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS users (
-        user_id INTEGER PRIMARY KEY,
-        first_name TEXT,
-        username TEXT,
-        slides_left INTEGER DEFAULT 3,
-        is_vip INTEGER DEFAULT 0,
-        referred_by INTEGER,
-        referrals_count INTEGER DEFAULT 0,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
+    if IS_POSTGRES:
+        # PostgreSQL jadvallari (Doimiy bulutli baza uchun)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id BIGINT PRIMARY KEY,
+            first_name TEXT,
+            username TEXT,
+            slides_left INT DEFAULT 3,
+            is_vip INT DEFAULT 0,
+            referred_by BIGINT,
+            referrals_count INT DEFAULT 0,
+            last_daily_bonus TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
 
-    # Agar eski bazada is_vip ustuni bo'lmasa qo'shish
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN is_vip INTEGER DEFAULT 0")
-    except sqlite3.OperationalError:
-        pass
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS last_presentations (
+            user_id BIGINT PRIMARY KEY,
+            topic TEXT,
+            theme TEXT,
+            content_json TEXT,
+            author_name TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
 
-    try:
-        cursor.execute("ALTER TABLE users ADD COLUMN last_daily_bonus TIMESTAMP")
-    except sqlite3.OperationalError:
-        pass
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+        """)
 
-    # Oxirgi yaratilgan taqdimot kontentini saqlash jadvali (Quick Re-skin va PDF uchun)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS last_presentations (
-        user_id INTEGER PRIMARY KEY,
-        topic TEXT,
-        theme TEXT,
-        content_json TEXT,
-        author_name TEXT,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS presentations (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT,
+            topic TEXT,
+            theme TEXT,
+            slide_count INT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
 
-    # Sozlamalar jadvali
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS settings (
-        key TEXT PRIMARY KEY,
-        value TEXT
-    )
-    """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admin_users (
+            user_id BIGINT PRIMARY KEY,
+            added_by BIGINT,
+            note TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
 
-    # Taqdimotlar statistikasi jadvali
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS presentations (
-        id INTEGER PRIMARY KEY AUTOINCREMENT,
-        user_id INTEGER,
-        topic TEXT,
-        theme TEXT,
-        slide_count INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS promocodes (
+            code TEXT PRIMARY KEY,
+            bonus_slides INT,
+            activations_left INT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
 
-    # Qo'shimcha adminlar jadvali (2-admin va boshqalar)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS admin_users (
-        user_id INTEGER PRIMARY KEY,
-        added_by INTEGER,
-        note TEXT,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS used_promocodes (
+            user_id BIGINT,
+            code TEXT,
+            used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(user_id, code)
+        );
+        """)
 
-    # Promokodlar jadvali
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS promocodes (
-        code TEXT PRIMARY KEY,
-        bonus_slides INTEGER,
-        activations_left INTEGER,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-    )
-    """)
+        default_settings = {
+            "required_channel": "",
+            "initial_slides_limit": "3",
+            "referral_reward": "2",
+            "payment_info": "💳 Karta raqam: 8600 0000 0000 0000\nEgasi: Admin\nTo'lov qilgach chekni adminga yuboring.",
+        }
 
-    # Ishlatilgan promokodlar (har bir user faqat 1 marta ishlata oladi)
-    cursor.execute("""
-    CREATE TABLE IF NOT EXISTS used_promocodes (
-        user_id INTEGER,
-        code TEXT,
-        used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY(user_id, code)
-    )
-    """)
+        for key, val in default_settings.items():
+            cursor.execute(
+                "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO NOTHING",
+                (key, val),
+            )
 
-    # Standart sozlamalar
-    default_settings = {
-        "required_channel": "",          # Majburiy kanal username
-        "initial_slides_limit": "3",     # Boshlang'ich limit
-        "referral_reward": "2",          # Referal bonusi
-        "payment_info": "💳 Karta raqam: 8600 0000 0000 0000\nEgasi: Admin\nTo'lov qilgach chekni adminga yuboring.",
-    }
+    else:
+        # SQLite jadvallari (Mahalliy kompyuter uchun)
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS users (
+            user_id INTEGER PRIMARY KEY,
+            first_name TEXT,
+            username TEXT,
+            slides_left INTEGER DEFAULT 3,
+            is_vip INTEGER DEFAULT 0,
+            referred_by INTEGER,
+            referrals_count INTEGER DEFAULT 0,
+            last_daily_bonus TIMESTAMP,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
 
-    for key, val in default_settings.items():
-        cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, val))
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN is_vip INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN last_daily_bonus TIMESTAMP")
+        except Exception:
+            pass
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS last_presentations (
+            user_id INTEGER PRIMARY KEY,
+            topic TEXT,
+            theme TEXT,
+            content_json TEXT,
+            author_name TEXT,
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS settings (
+            key TEXT PRIMARY KEY,
+            value TEXT
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS presentations (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER,
+            topic TEXT,
+            theme TEXT,
+            slide_count INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS admin_users (
+            user_id INTEGER PRIMARY KEY,
+            added_by INTEGER,
+            note TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS promocodes (
+            code TEXT PRIMARY KEY,
+            bonus_slides INTEGER,
+            activations_left INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS used_promocodes (
+            user_id INTEGER,
+            code TEXT,
+            used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY(user_id, code)
+        );
+        """)
+
+        default_settings = {
+            "required_channel": "",
+            "initial_slides_limit": "3",
+            "referral_reward": "2",
+            "payment_info": "💳 Karta raqam: 8600 0000 0000 0000\nEgasi: Admin\nTo'lov qilgach chekni adminga yuboring.",
+        }
+
+        for key, val in default_settings.items():
+            cursor.execute("INSERT OR IGNORE INTO settings (key, value) VALUES (?, ?)", (key, val))
 
     conn.commit()
     conn.close()
@@ -130,7 +265,13 @@ def get_setting(key: str, default: str = "") -> str:
 def set_setting(key: str, value: str):
     conn = get_connection()
     cursor = conn.cursor()
-    cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
+    if IS_POSTGRES:
+        cursor.execute(
+            "INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value",
+            (key, str(value)),
+        )
+    else:
+        cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
     conn.commit()
     conn.close()
 
@@ -141,10 +282,19 @@ def add_admin(user_id: int, added_by: int = 0, note: str = "") -> bool:
     conn = get_connection()
     cursor = conn.cursor()
     try:
-        cursor.execute(
-            "INSERT OR REPLACE INTO admin_users (user_id, added_by, note) VALUES (?, ?, ?)",
-            (user_id, added_by, note),
-        )
+        if IS_POSTGRES:
+            cursor.execute(
+                """
+                INSERT INTO admin_users (user_id, added_by, note) VALUES (?, ?, ?)
+                ON CONFLICT (user_id) DO UPDATE SET added_by = EXCLUDED.added_by, note = EXCLUDED.note
+                """,
+                (user_id, added_by, note),
+            )
+        else:
+            cursor.execute(
+                "INSERT OR REPLACE INTO admin_users (user_id, added_by, note) VALUES (?, ?, ?)",
+                (user_id, added_by, note),
+            )
         conn.commit()
         return True
     except Exception:
@@ -280,7 +430,7 @@ def use_slide(user_id: int, is_admin: bool = False):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "UPDATE users SET slides_left = MAX(0, slides_left - 1) WHERE user_id = ?",
+        "UPDATE users SET slides_left = CASE WHEN slides_left > 0 THEN slides_left - 1 ELSE 0 END WHERE user_id = ?",
         (user_id,),
     )
     conn.commit()
@@ -315,10 +465,19 @@ def create_promocode(code: str, bonus_slides: int, activations: int) -> bool:
     cursor = conn.cursor()
     try:
         clean_code = code.strip().upper()
-        cursor.execute(
-            "INSERT OR REPLACE INTO promocodes (code, bonus_slides, activations_left) VALUES (?, ?, ?)",
-            (clean_code, bonus_slides, activations),
-        )
+        if IS_POSTGRES:
+            cursor.execute(
+                """
+                INSERT INTO promocodes (code, bonus_slides, activations_left) VALUES (?, ?, ?)
+                ON CONFLICT (code) DO UPDATE SET bonus_slides = EXCLUDED.bonus_slides, activations_left = EXCLUDED.activations_left
+                """,
+                (clean_code, bonus_slides, activations),
+            )
+        else:
+            cursor.execute(
+                "INSERT OR REPLACE INTO promocodes (code, bonus_slides, activations_left) VALUES (?, ?, ?)",
+                (clean_code, bonus_slides, activations),
+            )
         conn.commit()
         return True
     except Exception:
@@ -401,18 +560,24 @@ def get_global_stats() -> Dict[str, Any]:
     cursor.execute("SELECT COUNT(*) as cnt FROM users")
     total_users = cursor.fetchone()["cnt"]
 
-    cursor.execute("SELECT COUNT(*) as cnt FROM users WHERE DATE(created_at) = DATE('now')")
+    if IS_POSTGRES:
+        cursor.execute("SELECT COUNT(*) as cnt FROM users WHERE created_at >= CURRENT_DATE")
+    else:
+        cursor.execute("SELECT COUNT(*) as cnt FROM users WHERE DATE(created_at) = DATE('now')")
     today_users = cursor.fetchone()["cnt"]
 
     cursor.execute("SELECT COUNT(*) as cnt FROM presentations")
     total_presentations = cursor.fetchone()["cnt"]
 
-    cursor.execute("SELECT COUNT(*) as cnt FROM presentations WHERE DATE(created_at) = DATE('now')")
+    if IS_POSTGRES:
+        cursor.execute("SELECT COUNT(*) as cnt FROM presentations WHERE created_at >= CURRENT_DATE")
+    else:
+        cursor.execute("SELECT COUNT(*) as cnt FROM presentations WHERE DATE(created_at) = DATE('now')")
     today_presentations = cursor.fetchone()["cnt"]
 
     cursor.execute("SELECT SUM(referrals_count) as cnt FROM users")
     row_ref = cursor.fetchone()
-    total_referrals = row_ref["cnt"] if row_ref["cnt"] else 0
+    total_referrals = row_ref["cnt"] if (row_ref and row_ref["cnt"]) else 0
 
     cursor.execute("SELECT COUNT(*) as cnt FROM admin_users")
     total_subadmins = cursor.fetchone()["cnt"]
@@ -447,16 +612,29 @@ def claim_daily_bonus(user_id: int) -> Tuple[bool, str, int, int]:
 
     last_bonus = user["last_daily_bonus"]
     if last_bonus:
-        # 24 soat (86400 soniya) o'tganligini tekshirish
-        cursor.execute("SELECT (strftime('%s', 'now') - strftime('%s', ?)) as diff", (last_bonus,))
-        row = cursor.fetchone()
-        diff = row["diff"] if row and row["diff"] is not None else 86401
-        if diff < 86400:
-            remaining = 86400 - diff
-            hours = remaining // 3600
-            mins = (remaining % 3600) // 60
-            conn.close()
-            return False, f"⏳ <b>Kunlik bonus allaqachon olingan!</b>\n\nKeyingi bonusni <b>{hours} soat {mins} daqiqadan</b> keyin olishingiz mumkin.", user["slides_left"], remaining
+        last_dt = None
+        if isinstance(last_bonus, str):
+            try:
+                last_dt = datetime.datetime.fromisoformat(last_bonus)
+            except Exception:
+                try:
+                    last_dt = datetime.datetime.strptime(last_bonus, "%Y-%m-%d %H:%M:%S")
+                except Exception:
+                    pass
+        elif isinstance(last_bonus, datetime.datetime):
+            last_dt = last_bonus
+
+        if last_dt:
+            if last_dt.tzinfo:
+                last_dt = last_dt.replace(tzinfo=None)
+            now = datetime.datetime.utcnow()
+            diff = int((now - last_dt).total_seconds())
+            if diff < 86400:
+                remaining = 86400 - diff
+                hours = remaining // 3600
+                mins = (remaining % 3600) // 60
+                conn.close()
+                return False, f"⏳ <b>Kunlik bonus allaqachon olingan!</b>\n\nKeyingi bonusni <b>{hours} soat {mins} daqiqadan</b> keyin olishingiz mumkin.", user["slides_left"], remaining
 
     # Bonus berish
     cursor.execute("""
