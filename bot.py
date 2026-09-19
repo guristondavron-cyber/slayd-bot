@@ -20,6 +20,7 @@ from aiogram.types import (
     LabeledPrice,
     PreCheckoutQuery,
     WebAppInfo,
+    MenuButtonWebApp,
 )
 from aiohttp import web
 
@@ -2627,6 +2628,9 @@ async def cb_help(callback: CallbackQuery):
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
 
+bot_instance: Optional[Bot] = None
+
+
 async def handle_ping(request):
     return web.Response(text="@SlaydchiAkabot is running 24/7!")
 
@@ -2643,6 +2647,79 @@ async def handle_webapp(request):
     return web.Response(text="Web App template topilmadi.", status=404)
 
 
+async def handle_create_slide_webapp(request):
+    try:
+        data = await request.json()
+        user_id = data.get("user_id")
+        payload = data.get("payload", data)
+        topic = payload.get("topic", "").strip()
+        slide_count = int(payload.get("slide_count", 7))
+        theme_key = payload.get("theme_key", "dark_tech")
+        mode = payload.get("mode", "general")
+        language = payload.get("language", "uz")
+        with_speech = bool(payload.get("with_speech", True))
+        author_name = payload.get("author_name", "").strip() or None
+
+        if not user_id:
+            return web.json_response({"ok": False, "error": "user_id topilmadi"}, status=400)
+        if not topic or len(topic) < 3:
+            return web.json_response({"ok": False, "error": "Mavzu juda qisqa"}, status=400)
+
+        user_dict = database.get_or_create_user(user_id, "Foydalanuvchi", "")
+        if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
+            if bot_instance:
+                await bot_instance.send_message(
+                    user_id,
+                    "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
+                    reply_markup=InlineKeyboardMarkup(
+                        inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]]
+                    )
+                )
+            return web.json_response({"ok": False, "error": "Slaydlar balansi yetarli emas"}, status=403)
+
+        class DummyTargetMsg:
+            def __init__(self, b: Bot, c_id: int):
+                self.bot = b
+                self.chat_id = c_id
+
+            async def answer(self, text, **kwargs):
+                return await self.bot.send_message(self.chat_id, text, **kwargs)
+
+            async def answer_photo(self, photo, **kwargs):
+                return await self.bot.send_photo(self.chat_id, photo, **kwargs)
+
+            async def answer_document(self, document, **kwargs):
+                return await self.bot.send_document(self.chat_id, document, **kwargs)
+
+            async def answer_media_group(self, media, **kwargs):
+                return await self.bot.send_media_group(self.chat_id, media, **kwargs)
+
+        if bot_instance:
+            dummy_msg = DummyTargetMsg(bot_instance, user_id)
+            asyncio.create_task(
+                execute_presentation_generation(
+                    target_msg=dummy_msg,
+                    user_id=user_id,
+                    topic=topic,
+                    slide_count=slide_count,
+                    theme_key=theme_key,
+                    language=language,
+                    mode=mode,
+                    author_name=author_name,
+                    logo_path=None,
+                    with_speech=with_speech,
+                    is_doc=False,
+                    doc_text=""
+                )
+            )
+            return web.json_response({"ok": True, "message": "Boshlandi"})
+        else:
+            return web.json_response({"ok": False, "error": "Bot hali ishga tushmagan"}, status=500)
+    except Exception as e:
+        logger.error(f"handle_create_slide_webapp error: {e}")
+        return web.json_response({"ok": False, "error": str(e)}, status=500)
+
+
 async def start_web_server():
     try:
         port = int(os.getenv("PORT", 8080))
@@ -2650,6 +2727,7 @@ async def start_web_server():
         app.router.add_get("/", handle_ping)
         app.router.add_get("/health", handle_ping)
         app.router.add_get("/webapp", handle_webapp)
+        app.router.add_post("/api/create_slide_webapp", handle_create_slide_webapp)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", port)
@@ -2667,7 +2745,20 @@ async def main():
 
     await start_web_server()
 
+    global bot_instance
     bot = Bot(token=token)
+    bot_instance = bot
+
+    try:
+        await bot.set_chat_menu_button(
+            menu_button=MenuButtonWebApp(
+                text="📱 Slayd Yaratish",
+                web_app=WebAppInfo(url=config.WEBAPP_URL)
+            )
+        )
+    except Exception as e:
+        logger.warning(f"Menu button o'rnatishda ogohlantirish: {e}")
+
     dp = Dispatcher(storage=MemoryStorage())
     dp.include_router(router)
 
