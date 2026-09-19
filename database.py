@@ -26,6 +26,7 @@ class DBConnection:
         self.is_postgres = IS_POSTGRES
         if self.is_postgres:
             self.conn = psycopg2.connect(DATABASE_URL, cursor_factory=RealDictCursor)
+            self.conn.autocommit = True
         else:
             self.conn = sqlite3.connect(DB_PATH)
             self.conn.row_factory = sqlite3.Row
@@ -34,7 +35,8 @@ class DBConnection:
         return DBCursor(self.conn.cursor(), self.is_postgres)
 
     def commit(self):
-        self.conn.commit()
+        if not self.is_postgres:
+            self.conn.commit()
 
     def close(self):
         self.conn.close()
@@ -91,14 +93,18 @@ def init_db():
         """)
 
         try:
-            cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+            conn.commit()
         except Exception:
-            pass
+            if hasattr(conn.conn, "rollback"):
+                conn.conn.rollback()
 
         try:
-            cursor.execute("ALTER TABLE users ADD COLUMN last_reminder_sent TIMESTAMP")
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_reminder_sent TIMESTAMP")
+            conn.commit()
         except Exception:
-            pass
+            if hasattr(conn.conn, "rollback"):
+                conn.conn.rollback()
 
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS last_presentations (
@@ -132,14 +138,18 @@ def init_db():
         """)
 
         try:
-            cursor.execute("ALTER TABLE presentations ADD COLUMN content_json TEXT")
+            cursor.execute("ALTER TABLE presentations ADD COLUMN IF NOT EXISTS content_json TEXT")
+            conn.commit()
         except Exception:
-            pass
+            if hasattr(conn.conn, "rollback"):
+                conn.conn.rollback()
 
         try:
-            cursor.execute("ALTER TABLE presentations ADD COLUMN author_name TEXT")
+            cursor.execute("ALTER TABLE presentations ADD COLUMN IF NOT EXISTS author_name TEXT")
+            conn.commit()
         except Exception:
-            pass
+            if hasattr(conn.conn, "rollback"):
+                conn.conn.rollback()
 
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS admin_users (

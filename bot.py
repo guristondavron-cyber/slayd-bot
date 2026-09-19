@@ -2632,10 +2632,14 @@ async def handle_ping(request):
 
 
 async def handle_webapp(request):
-    webapp_path = os.path.join(os.path.dirname(__file__), "templates", "webapp.html")
-    if os.path.exists(webapp_path):
-        with open(webapp_path, "r", encoding="utf-8") as f:
-            return web.Response(text=f.read(), content_type="text/html")
+    candidates = [
+        os.path.join(os.path.dirname(__file__), "templates", "webapp.html"),
+        os.path.join(os.path.dirname(__file__), "webapp.html")
+    ]
+    for webapp_path in candidates:
+        if os.path.exists(webapp_path):
+            with open(webapp_path, "r", encoding="utf-8") as f:
+                return web.Response(text=f.read(), content_type="text/html")
     return web.Response(text="Web App template topilmadi.", status=404)
 
 
