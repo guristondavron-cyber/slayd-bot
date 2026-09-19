@@ -34,6 +34,7 @@ class SlideContent(BaseModel):
         "title_slide",
         "cards_grid",
         "stats_metrics",
+        "chart_slide",
         "comparison",
         "timeline_steps",
         "matrix_2x2",
@@ -48,8 +49,9 @@ class SlideContent(BaseModel):
     # cards_grid uchun (3 yoki 4 ta karta)
     cards: Optional[List[CardItem]] = Field(default=None, description="cards_grid yoki umumiy punktlar uchun kartalar")
     
-    # stats_metrics uchun (3 yoki 4 ta statistika)
-    stats: Optional[List[StatItem]] = Field(default=None, description="stats_metrics slaydi uchun 3-4 ta muhim raqamlar")
+    # stats_metrics va chart_slide uchun (3 yoki 4 ta statistika)
+    stats: Optional[List[StatItem]] = Field(default=None, description="stats_metrics va chart_slide uchun 3-4 ta muhim raqamlar")
+    chart_type: Optional[str] = Field(default="column", description="chart_slide uchun: 'column' (ustunli) yoki 'pie' (doiraviy)")
     
     # comparison uchun
     comparison_col1: Optional[ComparisonColumn] = Field(default=None, description="Solishtirishning 1-ustuni")
@@ -148,6 +150,7 @@ MUHIM QAT'IY TALABLAR:
    - Mavjud layout turlaridan keng va xilma-xil foydalaning:
      * "title_slide" (faqat 1-slayd uchun muhtasham muqova)
      * "cards_grid" (3 ta asosiy sohaviy yo'nalish yoki tushuncha kartalari)
+     * "chart_slide" (haqiqiy PowerPoint diagrammasi: dinamika, nisbatlar yoki o'sish tendensiyalari uchun 'stats' maydonida 3-4 ta ko'rsatkich va 'chart_type': 'column' yoki 'pie')
      * "stats_metrics" (aniq katta raqamlar, masalan '85%', '3.5x', '$12M', '24/7' bilan 4 ta statistika)
      * "comparison" (muammo vs yechim, an'anaviy vs yangi yondashuv - 2 ta kontrast ustun)
      * "timeline_steps" (1-bosqich -> 2-bosqich -> 3-bosqich -> 4-bosqich yo'l xaritasi)
@@ -463,7 +466,7 @@ TIL TALABI:
 
 MUHIM QOIDALAR:
 1. Jami roppa-rosa {slide_count} ta slayd tuzing. 'slides' massivida aniq {slide_count} ta element bo'lishi SHART.
-2. Har bir slayd mazmuniga qarab har xil layout tanlang: "title_slide", "cards_grid", "stats_metrics", "comparison", "timeline_steps", "matrix_2x2", "quote_highlight", "checklist_points", "conclusion".
+2. Har bir slayd mazmuniga qarab har xil layout tanlang: "title_slide", "cards_grid", "chart_slide", "stats_metrics", "comparison", "timeline_steps", "matrix_2x2", "quote_highlight", "checklist_points", "conclusion".
 3. {speech_instruction}
 """
 

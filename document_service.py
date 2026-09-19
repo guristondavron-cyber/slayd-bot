@@ -78,3 +78,47 @@ async def transcribe_voice_with_gemini(voice_bytes: bytes, mime_type: str = "aud
     except Exception as e:
         logger.error(f"Ovozni tahlil qilishda xatolik: {e}")
         return ""
+
+
+async def extract_text_and_topic_from_image(image_bytes: bytes, mime_type: str = "image/jpeg") -> tuple:
+    """
+    Kitob varag'i, konspekt yoki doska rasmini tahlil qilib, 
+    undagi matnni (OCR) va eng asosiy mavzu nomini qaytaradi.
+    Qaytaradi: (mavzu, to'liq_matn)
+    """
+    if not config.GEMINI_API_KEY:
+        return "Rasm Asosida Taqdimot", "Ushbu rasm asosida tayyorlangan taqdimot kontenti."
+
+    client = genai.Client(api_key=config.GEMINI_API_KEY)
+
+    prompt = (
+        "Siz professional taqdimot yaratuvchi yordamchisiz. "
+        "Foydalanuvchi kitob, konspekt daftari yoki ilmiy hujjat rasmini yubordi.\n"
+        "1. Rasmdagi barcha asosiy matnlarni, tushunchalarni va faktlarni to'liq o'qing (OCR).\n"
+        "2. Ushbu material uchun mos, qisqa va aniq MAVZU nomini belgilang.\n\n"
+        "Javobingizni quyidagi formatda qaytaring:\n"
+        "MAVZU: [Qisqa aniq mavzu nomi]\n"
+        "MATN:\n[Rasmdan o'qilgan batafsil konspekt va ma'lumotlar]"
+    )
+
+    try:
+        image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+        response = await client.aio.models.generate_content(
+            model=config.GEMINI_MODEL,
+            contents=[prompt, image_part],
+        )
+        res_text = (response.text or "").strip()
+        topic = "Rasm Asosidagi Taqdimot"
+        doc_text = res_text
+
+        if "MAVZU:" in res_text and "MATN:" in res_text:
+            parts = res_text.split("MATN:", 1)
+            topic_part = parts[0].replace("MAVZU:", "").strip()
+            topic = topic_part.splitlines()[0].strip().strip('"').strip("'")
+            doc_text = parts[1].strip()
+
+        return topic, doc_text
+    except Exception as e:
+        logger.error(f"Rasmni OCR tahlil qilishda xatolik: {e}")
+        return "Rasm Asosida Taqdimot", ""
+

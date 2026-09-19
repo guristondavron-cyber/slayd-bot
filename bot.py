@@ -19,6 +19,7 @@ from aiogram.types import (
     InputMediaPhoto,
     LabeledPrice,
     PreCheckoutQuery,
+    WebAppInfo,
 )
 from aiohttp import web
 
@@ -29,6 +30,7 @@ from document_service import (
     extract_text_from_docx,
     extract_text_from_txt,
     transcribe_voice_with_gemini,
+    extract_text_and_topic_from_image,
 )
 from gemini_service import (
     generate_presentation_with_gemini,
@@ -182,6 +184,7 @@ def channel_sub_keyboard(channel: str) -> InlineKeyboardMarkup:
 def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
+        [InlineKeyboardButton(text="📱 Web App orqali yaratish (Interaktiv)", web_app=WebAppInfo(url=config.WEBAPP_URL))],
         [
             InlineKeyboardButton(text="📁 Mening Taqdimotlarim", callback_data="btn_my_presentations"),
             InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs"),
@@ -333,6 +336,9 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="💳 Karta & To'lov Matni", callback_data="adm_payment_info"),
                 InlineKeyboardButton(text="✉️ Rassilka (Xabar tarqatish)", callback_data="adm_broadcast"),
             ],
+            [
+                InlineKeyboardButton(text="📢 Qayta Jalb Qilish (Retargeting)", callback_data="adm_retargeting"),
+            ],
             [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
         ]
     )
@@ -391,8 +397,8 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
 
     text = (
         f"Assalomu alaykum, <b>{first_name}</b>{vip_badge}!\n\n"
-        f"Men <b>Professional Gemini AI Slayd Yaratuvchi</b> botman.\n"
-        f"Siz menga ixtiyoriy <b>mavzu</b>, <b>PDF/Word hujjati</b> yoki <b>ovozli xabar</b> yuboring — "
+        f"Men <b>Professional Slayd Yaratuvchi (@SlaydchiAkabot)</b> botman.\n"
+        f"Siz menga ixtiyoriy <b>mavzu</b>, <b>PDF/Word hujjati</b>, <b>rasm/konspekt</b> yoki <b>ovozli xabar</b> yuboring — "
         f"men 16:9 formatdagi PowerPoint taqdimot va uning <b>spiker nutqi matnini</b> tayyorlab beraman.\n\n"
         f"📊 <b>Sizning balansingiz:</b> <b>{balance_text}</b>\n\n"
         f"Boshlash uchun quyidagi tugmani bosing:"
@@ -759,6 +765,37 @@ async def process_document_topic(message: Message, state: FSMContext, bot: Bot):
         await status_msg.edit_text("Faylni yuklashda xatolik yuz berdi. Qaytadan urinib ko'ring.")
 
 
+@router.message(F.photo, SlideCreationState.waiting_for_topic)
+async def process_photo_topic(message: Message, state: FSMContext, bot: Bot):
+    photo = message.photo[-1]
+    status_msg = await message.answer("📸 <i>Kitob/konspekt rasmi tahlil qilinmoqda (matnlar o'qilmoqda)...</i>", parse_mode="HTML")
+    try:
+        file_info = await bot.get_file(photo.file_id)
+        photo_io = await bot.download_file(file_info.file_path)
+        photo_bytes = photo_io.read()
+
+        topic, doc_text = await extract_text_and_topic_from_image(photo_bytes, mime_type="image/jpeg")
+        if not doc_text or len(doc_text) < 25:
+            await status_msg.edit_text("Rasmdagi matnlar aniq ko'rinmadi. Iltimos, sifatliroq rasm yuboring yoki mavzuni yozib yuboring.")
+            return
+
+        await status_msg.delete()
+        await state.update_data(topic=topic, doc_text=doc_text, is_doc=True)
+        await state.set_state(SlideCreationState.waiting_for_author)
+
+        text = (
+            f"📸 <b>Rasmdan aniqlangan mavzu:</b> <i>{topic}</i>\n"
+            f"📝 <b>O'qilgan konspekt:</b> <i>{doc_text[:140]}...</i>\n\n"
+            "✍️ <b>Slaydlar tagida muallif (tayyorlovchi) nomi chiqsinmi?</b>\n"
+            "<i>Masalan:</i> <code>Alisher Navoiy</code> yoki <code>Toshkent Davlat Universiteti</code>\n\n"
+            "Ismingizni yozing yoki o'tkazib yuboring:"
+        )
+        await message.answer(text, parse_mode="HTML", reply_markup=author_skip_keyboard())
+    except Exception as e:
+        logger.error(f"Rasmni o'qishda xatolik: {e}")
+        await status_msg.edit_text("Rasmni tahlil qilishda xatolik yuz berdi. Qaytadan urinib ko'ring.")
+
+
 @router.message(SlideCreationState.waiting_for_topic)
 async def process_text_topic(message: Message, state: FSMContext):
     topic = (message.text or "").strip()
@@ -970,24 +1007,22 @@ async def process_theme_selected(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(text, parse_mode="HTML", reply_markup=speech_selection_keyboard())
 
 
-@router.callback_query(F.data.in_(["speech_yes", "speech_no"]), SlideCreationState.waiting_for_speech_choice)
-async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSMContext):
-    with_speech = (callback.data == "speech_yes")
-    await safe_callback_answer(callback, "Generatsiya boshlandi...")
-    data = await state.get_data()
-    topic = data.get("topic", "Taqdimot")
-    slide_count = data.get("slide_count", 5)
-    language = data.get("language", "uz")
-    theme_key = data.get("theme_key", config.DEFAULT_THEME)
-    mode = data.get("mode", "general")
-    author_name = data.get("author_name", "")
-    logo_path = data.get("logo_path")
-    is_doc = data.get("is_doc", False)
-    doc_text = data.get("doc_text", "")
+async def execute_presentation_generation(
+    target_msg: Message,
+    user_id: int,
+    topic: str,
+    slide_count: int,
+    theme_key: str,
+    language: str = "uz",
+    mode: str = "general",
+    author_name: Optional[str] = None,
+    logo_path: Optional[str] = None,
+    with_speech: bool = True,
+    is_doc: bool = False,
+    doc_text: str = "",
+    status_msg: Optional[Message] = None,
+):
     theme_info = config.THEMES.get(theme_key, config.THEMES[config.DEFAULT_THEME])
-
-    await state.clear()
-
     speech_desc = "va spiker nutqi" if with_speech else "(faqat slaydlar)"
     loading_text = (
         f"⏳ <b>Taqdimot tayyorlanmoqda...</b>\n\n"
@@ -996,10 +1031,13 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
         f"📊 <b>Hajmi:</b> {slide_count} ta slayd\n\n"
         f"1️⃣ <i>AI mavzuga mos interaktiv reja {speech_desc} tuzmoqda...</i>"
     )
-    try:
-        status_msg = await callback.message.edit_text(loading_text, parse_mode="HTML")
-    except Exception:
-        status_msg = await callback.message.answer(loading_text, parse_mode="HTML")
+    if not status_msg:
+        status_msg = await target_msg.answer(loading_text, parse_mode="HTML")
+    else:
+        try:
+            await status_msg.edit_text(loading_text, parse_mode="HTML")
+        except Exception:
+            status_msg = await target_msg.answer(loading_text, parse_mode="HTML")
 
     presentation_content: PresentationContent
     try:
@@ -1020,7 +1058,7 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
                 mode=mode,
             )
     except Exception as e:
-        logger.error(f"Gemini generatsiyasida xatolik: {e}")
+        logger.error(f"Generatsiyada xatolik: {e}")
         presentation_content = generate_mock_presentation(
             topic, slide_count=slide_count, with_speech=with_speech, mode=mode
         )
@@ -1032,7 +1070,7 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
                 f"📌 <b>Mavzu:</b> {topic}\n"
                 f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n\n"
                 f"✅ <i>Kontent tayyorlandi!</i>\n"
-                f"2️⃣ <i>16:9 formatda tematik rasmlar va grafikalar chizilmoqda...</i>",
+                f"2️⃣ <i>16:9 formatda tematik rasmlar va diagrammalar chizilmoqda...</i>",
                 parse_mode="HTML",
             )
         except Exception:
@@ -1059,7 +1097,6 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
         if with_speech:
             speech_file_path = generate_speaker_speech_file(presentation_content)
 
-        user_id = callback.from_user.id
         database.use_slide(user_id, is_admin(user_id))
 
         # Tarix va qayta ishlash uchun JSON
@@ -1107,17 +1144,17 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
         # 1-qadam: Slaydning preview rasmini yuborish
         if preview_img_path and os.path.exists(preview_img_path):
             preview_photo = FSInputFile(preview_img_path)
-            await callback.message.answer_photo(
+            await target_msg.answer_photo(
                 photo=preview_photo,
                 caption=caption,
                 parse_mode="HTML",
             )
         else:
-            await callback.message.answer(caption, parse_mode="HTML")
+            await target_msg.answer(caption, parse_mode="HTML")
 
         # 2-qadam: PowerPoint faylni yuborish
         pptx_doc = FSInputFile(pptx_file_path, filename=os.path.basename(pptx_file_path))
-        await callback.message.answer_document(
+        await target_msg.answer_document(
             document=pptx_doc,
             caption=f"📁 <b>{topic}</b> — PowerPoint (.pptx) taqdimot fayli",
             parse_mode="HTML",
@@ -1126,7 +1163,7 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
         # 3-qadam: Spiker nutqi faylini yuborish (faqat agar tanlangan bo'lsa, alohida faylda)
         if with_speech and speech_file_path and os.path.exists(speech_file_path):
             speech_doc = FSInputFile(speech_file_path, filename=os.path.basename(speech_file_path))
-            await callback.message.answer_document(
+            await target_msg.answer_document(
                 document=speech_doc,
                 caption="🎤 <b>Taqdimotda so'zlash uchun to'liq Spiker Nutqi (Nutq_matni.txt)</b>",
                 parse_mode="HTML",
@@ -1159,7 +1196,7 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
                 [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
             ]
         )
-        await callback.message.answer(
+        await target_msg.answer(
             "✨ <b>Taqdimot to'liq yetkazildi!</b>\n\n"
             "💡 <b>Yangi imkoniyatlar:</b>\n"
             "• 📸 <b>Slaydlar (Rasm):</b> Barcha slaydlarni sifatli rasm (PNG) to'plami sifatida olish.\n"
@@ -1172,10 +1209,93 @@ async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSM
 
     except Exception as e:
         logger.error(f"Slayd yaratishda xatolik: {e}")
-        await callback.message.answer(
+        await target_msg.answer(
             "❌ Slayd tayyorlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
-            reply_markup=main_menu_keyboard(callback.from_user.id),
+            reply_markup=main_menu_keyboard(user_id),
         )
+
+
+@router.callback_query(F.data.in_(["speech_yes", "speech_no"]), SlideCreationState.waiting_for_speech_choice)
+async def process_speech_choice_and_generate(callback: CallbackQuery, state: FSMContext):
+    with_speech = (callback.data == "speech_yes")
+    await safe_callback_answer(callback, "Generatsiya boshlandi...")
+    data = await state.get_data()
+    topic = data.get("topic", "Taqdimot")
+    slide_count = data.get("slide_count", 5)
+    language = data.get("language", "uz")
+    theme_key = data.get("theme_key", config.DEFAULT_THEME)
+    mode = data.get("mode", "general")
+    author_name = data.get("author_name", "")
+    logo_path = data.get("logo_path")
+    is_doc = data.get("is_doc", False)
+    doc_text = data.get("doc_text", "")
+
+    await state.clear()
+    await execute_presentation_generation(
+        target_msg=callback.message,
+        user_id=callback.from_user.id,
+        topic=topic,
+        slide_count=slide_count,
+        theme_key=theme_key,
+        language=language,
+        mode=mode,
+        author_name=author_name,
+        logo_path=logo_path,
+        with_speech=with_speech,
+        is_doc=is_doc,
+        doc_text=doc_text,
+    )
+
+
+@router.message(F.web_app_data)
+async def handle_web_app_data(message: Message, state: FSMContext, bot: Bot):
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name or "Foydalanuvchi"
+    username = message.from_user.username or ""
+    user_dict = database.get_or_create_user(user_id, first_name, username)
+
+    try:
+        data = json.loads(message.web_app_data.data)
+    except Exception as e:
+        logger.error(f"WebApp ma'lumotlarida xatolik: {e}")
+        await message.answer("⚠️ Ma'lumotlarni qabul qilishda xatolik yuz berdi.")
+        return
+
+    topic = data.get("topic", "").strip()
+    slide_count = int(data.get("slide_count", 7))
+    theme_key = data.get("theme_key", "dark_tech")
+    mode = data.get("mode", "general")
+    language = data.get("language", "uz")
+    with_speech = bool(data.get("with_speech", True))
+    author_name = data.get("author_name", "").strip() or None
+
+    if not topic or len(topic) < 3:
+        await message.answer("⚠️ Mavzu kiritilmadi. Iltimos, qaytadan Mini App orqali yuboring.")
+        return
+
+    if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
+        await message.answer(
+            "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]]
+            ),
+        )
+        return
+
+    await execute_presentation_generation(
+        target_msg=message,
+        user_id=user_id,
+        topic=topic,
+        slide_count=slide_count,
+        theme_key=theme_key,
+        language=language,
+        mode=mode,
+        author_name=author_name,
+        logo_path=None,
+        with_speech=with_speech,
+        is_doc=False,
+        doc_text="",
+    )
 
 
 # ------------------ PDF EXPORT VA RE-SKIN HANDLERS ------------------
@@ -2325,6 +2445,133 @@ async def cb_admin_stats(callback: CallbackQuery):
     await callback.message.edit_text(text, parse_mode="HTML", reply_markup=kb)
 
 
+# Retargeting Handlers
+@router.callback_query(F.data == "adm_retargeting")
+async def cb_admin_retargeting(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback)
+
+    stats = database.get_retargeting_stats()
+    text = (
+        "📢 <b>Smart Marketing & Retargeting (Qayta jalb qilish)</b>\n\n"
+        f"👥 Jami ro'yxatdan o'tgan foydalanuvchilar: <b>{stats['total']} ta</b>\n"
+        f"😴 3+ kundan beri kirmagan nofaol foydalanuvchilar: <b>{stats['inactive']} ta</b>\n\n"
+        "<i>Ushbu funksiya orqali nofaol foydalanuvchilarga bepul bonus va yangi imkoniyatlar haqida do'stona eslatma yuborib, ularni botga qaytarish mumkin.</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Eslatmani Yuborish (Nofaollarga)", callback_data="adm_send_retargeting")],
+            [InlineKeyboardButton(text="🔙 Admin menyu", callback_data="btn_admin_panel")],
+        ]
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "adm_send_retargeting")
+async def cb_admin_send_retargeting(callback: CallbackQuery, bot: Bot):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback, "Eslatma yuborilmoqda...")
+
+    inactive_users = database.get_inactive_users(days_inactive=3, limit=100)
+    if not inactive_users:
+        await callback.message.answer("Hozirda eslatma yuboriladigan nofaol foydalanuvchilar yo'q.")
+        return
+
+    sent_count = 0
+    fail_count = 0
+
+    reminder_text = (
+        "🎁 <b>Salom! Sizni @SlaydchiAkabot da ko'rmaganimizga ham bir necha kun bo'ldi!</b>\n\n"
+        "✨ Botimizda yangi katta yangilanishlar bo'ldi:\n"
+        "• 🎙 <b>Ovozli xabar</b> yoki 📸 <b>Kitob/Konspekt rasmini</b> yuborib slayd yasash\n"
+        "• 📊 <b>Haqiqiy PowerPoint diagrammalari va grafiklari</b>\n"
+        "• 📱 <b>Yangi interaktiv Telegram Mini App</b>\n\n"
+        "🎁 <i>Siz uchun yangi kunlik bonus tayyor! /start bosing va yangi taqdimotingizni 1 daqiqada yarating</i> 🚀"
+    )
+
+    for u in inactive_users:
+        uid = u["user_id"]
+        try:
+            await bot.send_message(
+                chat_id=uid,
+                text=reminder_text,
+                parse_mode="HTML",
+                reply_markup=InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide")],
+                        [InlineKeyboardButton(text="📱 Mini Appni Ochish", web_app=WebAppInfo(url=config.WEBAPP_URL))],
+                    ]
+                )
+            )
+            database.record_reminder_sent(uid)
+            sent_count += 1
+            await asyncio.sleep(0.05)
+        except Exception:
+            fail_count += 1
+
+    await callback.message.answer(
+        f"✅ <b>Retargeting xabarlari muvaffaqiyatli yakunlandi!</b>\n\n"
+        f"📨 Yuborildi: {sent_count} ta foydalanuvchiga\n"
+        f"❌ Yetib bormadi (bloklagan): {fail_count} ta",
+        parse_mode="HTML",
+        reply_markup=admin_menu_keyboard(),
+    )
+
+
+# To'g'ridan-to'g'ri yuborilgan audio, rasm va hujjatlarni qabul qilish
+@router.message(F.voice)
+async def handle_direct_voice(message: Message, state: FSMContext, bot: Bot):
+    curr_state = await state.get_state()
+    if curr_state:
+        return
+    user_id = message.from_user.id
+    user_dict = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
+    if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
+        await message.answer(
+            "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]])
+        )
+        return
+    await state.set_state(SlideCreationState.waiting_for_topic)
+    await process_voice_topic(message, state, bot)
+
+
+@router.message(F.document)
+async def handle_direct_document(message: Message, state: FSMContext, bot: Bot):
+    curr_state = await state.get_state()
+    if curr_state:
+        return
+    user_id = message.from_user.id
+    user_dict = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
+    if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
+        await message.answer(
+            "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]])
+        )
+        return
+    await state.set_state(SlideCreationState.waiting_for_topic)
+    await process_document_topic(message, state, bot)
+
+
+@router.message(F.photo)
+async def handle_direct_photo(message: Message, state: FSMContext, bot: Bot):
+    curr_state = await state.get_state()
+    if curr_state:
+        return
+    user_id = message.from_user.id
+    user_dict = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
+    if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
+        await message.answer(
+            "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]])
+        )
+        return
+    await state.set_state(SlideCreationState.waiting_for_topic)
+    await process_photo_topic(message, state, bot)
+
+
 @router.callback_query(F.data == "btn_themes")
 async def cb_themes_gallery(callback: CallbackQuery):
     await safe_callback_answer(callback)
@@ -2359,11 +2606,12 @@ async def cb_themes_gallery(callback: CallbackQuery):
 async def cb_help(callback: CallbackQuery):
     await safe_callback_answer(callback)
     text = (
-        "ℹ️ <b>Slayd Yaratuvchi Bot Haqida</b>\n\n"
-        "Ushbu bot eng ilg'or Gemini AI texnologiyalari asosida ishlaydi.\n\n"
+        "ℹ️ <b>Slayd Yaratuvchi Bot (@SlaydchiAkabot) Haqida</b>\n\n"
+        "Ushbu bot eng ilg'or sun'iy intellekt texnologiyalari asosida ishlaydi.\n\n"
         "<b>Imkoniyatlar:</b>\n"
         "• 16:9 Widescreen zamonaviy taqdimotlar (20 tagacha slayd)\n"
-        "• Matn, 🎙 Ovozli xabar yoki 📄 PDF/Word fayllardan slayd yasash\n"
+        "• Matn, 🎙 Ovozli xabar, 📸 Kitob/Konspekt rasmi yoki 📄 PDF/Word fayllardan slayd yasash\n"
+        "• 📊 <b>Haqiqiy PowerPoint diagrammalari va grafiklari</b>\n"
         "• 🎤 <b>Har bir slayd uchun tayyor Spiker nutqi (so'zlash matni)</b>\n"
         "• 3 ta tilda yaratish (O'zbekcha, Ruscha, Inglizcha)\n"
         "• Do'stlarni taklif qilib qo'shimcha bepul limitlar olish\n"
@@ -2380,7 +2628,15 @@ async def cb_help(callback: CallbackQuery):
 
 
 async def handle_ping(request):
-    return web.Response(text="Gemini Slide Bot is running 24/7!")
+    return web.Response(text="@SlaydchiAkabot is running 24/7!")
+
+
+async def handle_webapp(request):
+    webapp_path = os.path.join(os.path.dirname(__file__), "templates", "webapp.html")
+    if os.path.exists(webapp_path):
+        with open(webapp_path, "r", encoding="utf-8") as f:
+            return web.Response(text=f.read(), content_type="text/html")
+    return web.Response(text="Web App template topilmadi.", status=404)
 
 
 async def start_web_server():
@@ -2389,11 +2645,12 @@ async def start_web_server():
         app = web.Application()
         app.router.add_get("/", handle_ping)
         app.router.add_get("/health", handle_ping)
+        app.router.add_get("/webapp", handle_webapp)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", port)
         await site.start()
-        logger.info(f"Web server {port}-portda muvaffaqiyatli ishga tushdi.")
+        logger.info(f"Web server {port}-portda muvaffaqiyatli ishga tushdi (/webapp faol).")
     except Exception as e:
         logger.warning(f"Web server ogohlantirish: {e}")
 

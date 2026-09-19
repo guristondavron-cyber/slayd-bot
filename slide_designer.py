@@ -5,6 +5,8 @@ from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor
 from pptx.enum.text import PP_ALIGN, MSO_ANCHOR
 from pptx.enum.shapes import MSO_SHAPE
+from pptx.chart.data import CategoryChartData
+from pptx.enum.chart import XL_CHART_TYPE, XL_LEGEND_POSITION
 
 import config
 from config import ColorTheme
@@ -167,6 +169,8 @@ def create_presentation_file(
         # Slayd layout turiga qarab chizish
         if slide_data.layout == "title_slide" or idx == 0:
             _render_title_slide(slide, slide_data, theme, prs.slide_width, prs.slide_height, author_name=author_name, logo_path=logo_path)
+        elif slide_data.layout == "chart_slide" or (slide_data.layout == "stats_metrics" and idx % 2 == 1 and slide_data.stats):
+            _render_chart_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "stats_metrics" and slide_data.stats:
             _render_stats_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "comparison" and (slide_data.comparison_col1 or slide_data.comparison_col2):
@@ -610,6 +614,109 @@ def _render_stats_slide(slide, slide_data: SlideContent, theme: ColorTheme, curr
             p_desc.font.size = Pt(12)
             p_desc.font.name = FONT_FAMILY_BODY
             p_desc.font.color.rgb = RGBColor(*theme.text_muted)
+
+
+def _render_chart_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
+    """Haqiqiy PowerPoint diagrammasi (ustunli yoki doiraviy) bilan boyitilgan tahliliy slayd."""
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
+
+    # Chap tomonda: Tahlil va xulosalar kartochkasi
+    card_left = Inches(0.9)
+    card_top = Inches(2.4)
+    card_w = Inches(4.2)
+    card_h = Inches(4.2)
+
+    container = slide.shapes.add_shape(
+        MSO_SHAPE.ROUNDED_RECTANGLE,
+        card_left,
+        card_top,
+        card_w,
+        card_h,
+    )
+    container.fill.solid()
+    container.fill.fore_color.rgb = RGBColor(*theme.card_bg)
+    container.line.color.rgb = RGBColor(*theme.card_border)
+    container.line.width = Pt(1.5)
+
+    tbox = slide.shapes.add_textbox(card_left + Inches(0.3), card_top + Inches(0.3), card_w - Inches(0.6), card_h - Inches(0.6))
+    tf = tbox.text_frame
+    tf.word_wrap = True
+
+    p0 = tf.paragraphs[0]
+    p0.text = "📊 ASOSIY DINAMIKA"
+    p0.font.size = Pt(12)
+    p0.font.bold = True
+    p0.font.name = FONT_FAMILY_TITLE
+    p0.font.color.rgb = RGBColor(*theme.primary)
+
+    stats = slide_data.stats or []
+    if stats:
+        for st in stats[:3]:
+            p_s = tf.add_paragraph()
+            p_s.text = f"• {st.label}: {st.number}"
+            p_s.font.size = Pt(13)
+            p_s.font.bold = True
+            p_s.font.name = FONT_FAMILY_TITLE
+            p_s.font.color.rgb = RGBColor(*theme.text_title)
+            p_s.space_before = Pt(6)
+
+            if st.description:
+                p_sd = tf.add_paragraph()
+                p_sd.text = f"  {st.description[:60]}"
+                p_sd.font.size = Pt(11)
+                p_sd.font.name = FONT_FAMILY_BODY
+                p_sd.font.color.rgb = RGBColor(*theme.text_muted)
+    else:
+        p_desc = tf.add_paragraph()
+        p_desc.text = slide_data.subtitle or "Ma'lumotlar tahlili va ko'rsatkichlar nisbati diagrammada aks ettirilgan."
+        p_desc.font.size = Pt(13)
+        p_desc.font.name = FONT_FAMILY_BODY
+        p_desc.font.color.rgb = RGBColor(*theme.text_body)
+        p_desc.space_before = Pt(8)
+
+    # O'ng tomonda: Haqiqiy PowerPoint diagrammasi
+    chart_left = Inches(5.4)
+    chart_top = Inches(2.4)
+    chart_w = Inches(7.0)
+    chart_h = Inches(4.2)
+
+    chart_data = CategoryChartData()
+    categories = []
+    values = []
+
+    if stats:
+        for st in stats[:5]:
+            categories.append(st.label[:16])
+            clean_digits = "".join(c for c in st.number if c.isdigit() or c == ".")
+            try:
+                val = float(clean_digits) if clean_digits else 50.0
+            except ValueError:
+                val = 50.0
+            values.append(val if val > 0 else 25.0)
+    else:
+        categories = ["1-Chorak", "2-Chorak", "3-Chorak", "4-Chorak"]
+        values = [25.0, 50.0, 75.0, 95.0]
+
+    chart_data.categories = categories
+    series_name = getattr(slide_data, "category_badge", "Ko'rsatkichlar") or "Ko'rsatkichlar"
+    chart_data.add_series(series_name, values)
+
+    is_pie = getattr(slide_data, "chart_type", "") == "pie"
+    chart_type = XL_CHART_TYPE.PIE if is_pie else XL_CHART_TYPE.COLUMN_CLUSTERED
+
+    chart_shape = slide.shapes.add_chart(
+        chart_type, chart_left, chart_top, chart_w, chart_h, chart_data
+    )
+    chart = chart_shape.chart
+    chart.has_legend = True
+    chart.legend.position = XL_LEGEND_POSITION.BOTTOM
+    chart.legend.include_in_layout = False
+
+    try:
+        plot = chart.plots[0]
+        plot.has_data_labels = True
+    except Exception:
+        pass
 
 
 def _render_comparison_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
@@ -1212,6 +1319,44 @@ def render_slide_to_image(
         draw.text((800, 395), "✓ @SlaydchiAkabot Kontent", fill=theme.text_body)
         draw.text((800, 445), "✓ Tayyor Spiker Nutqi", fill=theme.text_body)
         draw.text((800, 495), "✓ PowerPoint & PDF", fill=theme.secondary)
+
+    elif slide_data.layout == "chart_slide":
+        left_w = 420
+        draw.rounded_rectangle([(120, content_top), (120 + left_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
+        draw.text((150, content_top + 30), "📊 ASOSIY STATISTIKA", fill=theme.primary)
+        stats = slide_data.stats or []
+        for s_i, st in enumerate(stats[:3]):
+            s_y = content_top + 80 + s_i * 85
+            draw.text((150, s_y), f"• {st.label}: {st.number}", fill=theme.text_title)
+            if st.description:
+                draw.text((165, s_y + 35), st.description[:40], fill=theme.text_muted)
+
+        chart_x = 120 + left_w + 40
+        chart_w = W - 120 - chart_x
+        draw.rounded_rectangle([(chart_x, content_top), (chart_x + chart_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.primary, width=2)
+        draw.text((chart_x + 30, content_top + 25), "📈 O'sish va Dinamika Diagrammasi", fill=theme.primary)
+
+        chart_base_y = content_bottom - 50
+        max_bar_h = content_bottom - content_top - 120
+        bar_items = stats[:4] if stats else [StatItem(number="75%", label="1-Bosqich"), StatItem(number="90%", label="2-Bosqich")]
+        num_b = len(bar_items)
+        bw = int((chart_w - 60 - 25 * (num_b - 1)) / max(num_b, 1))
+
+        for b_i, b_item in enumerate(bar_items):
+            bx = chart_x + 30 + b_i * (bw + 25)
+            clean_digits = "".join(c for c in b_item.number if c.isdigit() or c == ".")
+            try:
+                percent = float(clean_digits) if clean_digits else 50.0
+            except ValueError:
+                percent = 50.0
+            percent = min(max(percent, 15.0), 100.0)
+            bh = int(max_bar_h * (percent / 100.0))
+            by = chart_base_y - bh
+
+            col = theme.primary if b_i % 2 == 0 else theme.secondary
+            draw.rounded_rectangle([(bx, by), (bx + bw, chart_base_y)], radius=6, fill=col)
+            draw.text((bx + 10, by - 25), b_item.number[:6], fill=theme.text_title)
+            draw.text((bx + 5, chart_base_y + 10), b_item.label[:12], fill=theme.text_muted)
 
     elif slide_data.stats and (slide_data.layout == "stats_metrics" or len(slide_data.stats) >= 2):
         st_list = slide_data.stats[:4]

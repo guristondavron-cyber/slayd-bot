@@ -84,9 +84,21 @@ def init_db():
             referred_by BIGINT,
             referrals_count INT DEFAULT 0,
             last_daily_bonus TIMESTAMP,
+            last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_reminder_sent TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """)
+
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN last_reminder_sent TIMESTAMP")
+        except Exception:
+            pass
 
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS last_presentations (
@@ -182,6 +194,8 @@ def init_db():
             referred_by INTEGER,
             referrals_count INTEGER DEFAULT 0,
             last_daily_bonus TIMESTAMP,
+            last_active TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            last_reminder_sent TIMESTAMP,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """)
@@ -193,6 +207,16 @@ def init_db():
 
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN last_daily_bonus TIMESTAMP")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN last_active TIMESTAMP")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN last_reminder_sent TIMESTAMP")
         except Exception:
             pass
 
@@ -405,7 +429,7 @@ def get_or_create_user(
 
     if row:
         cursor.execute(
-            "UPDATE users SET first_name = ?, username = ? WHERE user_id = ?",
+            "UPDATE users SET first_name = ?, username = ?, last_active = CURRENT_TIMESTAMP WHERE user_id = ?",
             (first_name, username, user_id),
         )
         conn.commit()
@@ -425,8 +449,8 @@ def get_or_create_user(
 
     cursor.execute(
         """
-        INSERT INTO users (user_id, first_name, username, slides_left, is_vip, referred_by, referrals_count)
-        VALUES (?, ?, ?, ?, 0, ?, 0)
+        INSERT INTO users (user_id, first_name, username, slides_left, is_vip, referred_by, referrals_count, last_active)
+        VALUES (?, ?, ?, ?, 0, ?, 0, CURRENT_TIMESTAMP)
         """,
         (user_id, first_name, username, initial_limit, valid_referrer),
     )
@@ -449,6 +473,68 @@ def get_or_create_user(
     new_row = cursor.fetchone()
     conn.close()
     return dict(new_row), rewarded_referrer_id, reward_amount
+
+
+def touch_user_activity(user_id: int):
+    """Foydalanuvchi faolligini yangilaydi (oxirgi faol bo'lgan vaqti)."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET last_active = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_inactive_users(days_inactive: int = 3, limit: int = 50) -> List[Dict[str, Any]]:
+    """3 kundan beri kirmagan va oxirgi 7 kunda eslatma olmagan foydalanuvchilarni qaytaradi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if IS_POSTGRES:
+        sql = f"""
+        SELECT user_id, first_name, username, slides_left, is_vip, last_active
+        FROM users
+        WHERE (last_active < NOW() - INTERVAL '{days_inactive} days' OR last_active IS NULL)
+          AND (last_reminder_sent IS NULL OR last_reminder_sent < NOW() - INTERVAL '7 days')
+        LIMIT ?
+        """
+    else:
+        sql = f"""
+        SELECT user_id, first_name, username, slides_left, is_vip, last_active
+        FROM users
+        WHERE (last_active < datetime('now', '-{days_inactive} days') OR last_active IS NULL)
+          AND (last_reminder_sent IS NULL OR last_reminder_sent < datetime('now', '-7 days'))
+        LIMIT ?
+        """
+    cursor.execute(sql, (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows] if rows else []
+
+
+def record_reminder_sent(user_id: int):
+    """Foydalanuvchiga eslatma yuborilgan vaqtni saqlaydi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET last_reminder_sent = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
+    conn.commit()
+    conn.close()
+
+
+def get_retargeting_stats() -> Dict[str, int]:
+    """Retargeting uchun statistikani qaytaradi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT COUNT(*) as total FROM users")
+    total_row = cursor.fetchone()
+    total = total_row["total"] if total_row else 0
+
+    if IS_POSTGRES:
+        cursor.execute("SELECT COUNT(*) as inactive FROM users WHERE (last_active < NOW() - INTERVAL '3 days' OR last_active IS NULL)")
+    else:
+        cursor.execute("SELECT COUNT(*) as inactive FROM users WHERE (last_active < datetime('now', '-3 days') OR last_active IS NULL)")
+    inactive_row = cursor.fetchone()
+    inactive = inactive_row["inactive"] if inactive_row else 0
+    conn.close()
+    return {"total": total, "inactive": inactive}
 
 
 def get_user(user_id: int) -> Optional[Dict[str, Any]]:

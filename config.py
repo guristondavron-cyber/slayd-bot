@@ -11,6 +11,7 @@ GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "").strip()
 # Gemini model to use - using fast, reliable and modern Gemini model
 GEMINI_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
 ADMIN_ID = os.getenv("ADMIN_ID", "").strip()
+WEBAPP_URL = os.getenv("WEBAPP_URL", "https://slayd-bot-rtzg.onrender.com/webapp").strip()
 
 
 
