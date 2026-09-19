@@ -113,9 +113,21 @@ def init_db():
             topic TEXT,
             theme TEXT,
             slide_count INT,
+            content_json TEXT,
+            author_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """)
+
+        try:
+            cursor.execute("ALTER TABLE presentations ADD COLUMN content_json TEXT")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE presentations ADD COLUMN author_name TEXT")
+        except Exception:
+            pass
 
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS admin_users (
@@ -208,9 +220,21 @@ def init_db():
             topic TEXT,
             theme TEXT,
             slide_count INTEGER,
+            content_json TEXT,
+            author_name TEXT,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """)
+
+        try:
+            cursor.execute("ALTER TABLE presentations ADD COLUMN content_json TEXT")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE presentations ADD COLUMN author_name TEXT")
+        except Exception:
+            pass
 
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS admin_users (
@@ -533,15 +557,48 @@ def get_all_promocodes() -> List[Dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-def record_presentation(user_id: int, topic: str, theme: str, slide_count: int):
+def record_presentation(
+    user_id: int,
+    topic: str,
+    theme: str,
+    slide_count: int,
+    content_json: Optional[str] = None,
+    author_name: Optional[str] = None,
+):
     conn = get_connection()
     cursor = conn.cursor()
     cursor.execute(
-        "INSERT INTO presentations (user_id, topic, theme, slide_count) VALUES (?, ?, ?, ?)",
-        (user_id, topic, theme, slide_count),
+        "INSERT INTO presentations (user_id, topic, theme, slide_count, content_json, author_name) VALUES (?, ?, ?, ?, ?, ?)",
+        (user_id, topic, theme, slide_count, content_json, author_name),
     )
     conn.commit()
     conn.close()
+
+
+def get_user_presentations(user_id: int, limit: int = 5) -> List[Dict[str, Any]]:
+    """Foydalanuvchining yaratgan oldingi taqdimotlari tarixini oladi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, user_id, topic, theme, slide_count, content_json, author_name, created_at FROM presentations WHERE user_id = ? ORDER BY id DESC LIMIT ?",
+        (user_id, limit),
+    )
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+def get_presentation_by_id(presentation_id: int) -> Optional[Dict[str, Any]]:
+    """ID bo'yicha taqdimot ma'lumotlarini olish."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "SELECT id, user_id, topic, theme, slide_count, content_json, author_name, created_at FROM presentations WHERE id = ?",
+        (presentation_id,),
+    )
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
 
 
 def get_all_user_ids() -> List[int]:

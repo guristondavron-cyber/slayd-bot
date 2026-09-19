@@ -28,7 +28,7 @@ import subprocess
 import urllib.parse
 from typing import Optional, List
 import requests
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageFont
 
 logger = logging.getLogger(__name__)
 
@@ -144,6 +144,7 @@ def create_presentation_file(
     theme_key: str = "dark_tech",
     output_path: Optional[str] = None,
     author_name: Optional[str] = None,
+    logo_path: Optional[str] = None,
 ) -> str:
     """
     PresentationContent obyektidan 16:9 formatdagi chiroyli PPTX faylini yaratadi.
@@ -165,38 +166,23 @@ def create_presentation_file(
         
         # Slayd layout turiga qarab chizish
         if slide_data.layout == "title_slide" or idx == 0:
-            _render_title_slide(slide, slide_data, theme, prs.slide_width, prs.slide_height, author_name=author_name)
+            _render_title_slide(slide, slide_data, theme, prs.slide_width, prs.slide_height, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "stats_metrics" and slide_data.stats:
-            _render_stats_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name)
+            _render_stats_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "comparison" and (slide_data.comparison_col1 or slide_data.comparison_col2):
-            _render_comparison_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name)
+            _render_comparison_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "timeline_steps" and slide_data.steps:
-            _render_timeline_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name)
+            _render_timeline_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "matrix_2x2":
-            _render_matrix_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name)
+            _render_matrix_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "quote_highlight":
-            _render_quote_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name)
+            _render_quote_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "checklist_points":
-            _render_checklist_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name)
+            _render_checklist_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "conclusion":
-            _render_conclusion_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name)
+            _render_conclusion_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         else:
-            _render_cards_grid_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name)
-
-        # Spiker nutqini PowerPoint Notes bo'limiga biriktirish
-
-        if getattr(slide_data, "speaker_speech", None) or getattr(slide_data, "speaker_notes", None):
-            try:
-                notes_slide = slide.notes_slide
-                tf_n = notes_slide.notes_text_frame
-                text_parts = []
-                if getattr(slide_data, "speaker_speech", None):
-                    text_parts.append(f"🎤 SPIKER NUTQI:\n{slide_data.speaker_speech}")
-                if getattr(slide_data, "speaker_notes", None):
-                    text_parts.append(f"💡 ESLATMA:\n{slide_data.speaker_notes}")
-                tf_n.text = "\n\n".join(text_parts)
-            except Exception:
-                pass
+            _render_cards_grid_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
 
     # Chiqish fayli nomini belgilash
     if not output_path:
@@ -281,8 +267,15 @@ def _render_slide_background(slide, theme: ColorTheme, width, height):
     accent_bar.line.fill.background()
 
 
-def _render_header(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None):
+def _render_header(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """Har bir slayd uchun standart zamonaviy header va footer."""
+    # Logo mavjud bo'lsa yuqori o'ng burchakka joylashtirish
+    if logo_path and os.path.exists(logo_path):
+        try:
+            slide.shapes.add_picture(logo_path, Inches(11.2), Inches(0.4), height=Inches(0.65))
+        except Exception:
+            pass
+
     # Kategoriya tegi (Badge Pill)
     badge = slide.shapes.add_shape(
         MSO_SHAPE.ROUNDED_RECTANGLE,
@@ -307,7 +300,7 @@ def _render_header(slide, slide_data: SlideContent, theme: ColorTheme, current_n
     p_b.alignment = PP_ALIGN.CENTER
 
     # Slayd Sarlavhasi va Subtitle
-    title_box = slide.shapes.add_textbox(Inches(0.9), Inches(0.95), Inches(11.5), Inches(1.3))
+    title_box = slide.shapes.add_textbox(Inches(0.9), Inches(0.95), Inches(10.2 if (logo_path and os.path.exists(logo_path)) else 11.5), Inches(1.3))
     tf_t = title_box.text_frame
     tf_t.word_wrap = True
     tf_t.margin_left = tf_t.margin_right = tf_t.margin_top = tf_t.margin_bottom = 0
@@ -338,7 +331,7 @@ def _render_header(slide, slide_data: SlideContent, theme: ColorTheme, current_n
     p_f.font.color.rgb = RGBColor(*theme.text_muted)
 
 
-def _render_title_slide(slide, slide_data: SlideContent, theme: ColorTheme, width, height, author_name: Optional[str] = None):
+def _render_title_slide(slide, slide_data: SlideContent, theme: ColorTheme, width, height, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """Zamonaviy Title (Muqova) slaydi real rasm va mualliflik bilan."""
     # Markazdagi katta karta / konteyner
     card_w = Inches(11.5)
@@ -357,6 +350,13 @@ def _render_title_slide(slide, slide_data: SlideContent, theme: ColorTheme, widt
     container.fill.fore_color.rgb = RGBColor(*theme.card_bg)
     container.line.color.rgb = RGBColor(*theme.card_border)
     container.line.width = Pt(1.5)
+
+    # Logo mavjud bo'lsa sarlavha kartasi yuqori o'ngiga joylashtirish
+    if logo_path and os.path.exists(logo_path):
+        try:
+            slide.shapes.add_picture(logo_path, card_left + card_w - Inches(1.8), card_top + Inches(0.45), height=Inches(0.75))
+        except Exception:
+            pass
 
     # Mavzuga mos rasm yuklash va o'ng tomonga joylashtirish
     img_kw = getattr(slide_data, "image_keyword", None) or slide_data.title
@@ -465,9 +465,9 @@ def _render_title_slide(slide, slide_data: SlideContent, theme: ColorTheme, widt
         p_hl.alignment = PP_ALIGN.LEFT
 
 
-def _render_cards_grid_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None):
+def _render_cards_grid_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """3 yoki 4 ta kartochkali zamonaviy grid layout."""
-    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name)
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
 
     items = slide_data.cards or []
     if not items:
@@ -547,9 +547,9 @@ def _render_cards_grid_slide(slide, slide_data: SlideContent, theme: ColorTheme,
         p_desc.font.color.rgb = RGBColor(*theme.text_body)
 
 
-def _render_stats_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None):
+def _render_stats_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """Statistika va raqamlar infografikasi slaydi."""
-    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name)
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
 
     stats = slide_data.stats or []
     count = min(len(stats), 4)
@@ -612,9 +612,9 @@ def _render_stats_slide(slide, slide_data: SlideContent, theme: ColorTheme, curr
             p_desc.font.color.rgb = RGBColor(*theme.text_muted)
 
 
-def _render_comparison_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None):
+def _render_comparison_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """Ikki ustunli solishtirish (Masalan: An'anaviy vs Innovatsion) slaydi."""
-    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name)
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
 
     col1 = slide_data.comparison_col1 or ComparisonColumn(header="Variant A", points=["Standart imkoniyatlar"])
     col2 = slide_data.comparison_col2 or ComparisonColumn(header="Variant B", points=["Kengaytirilgan imkoniyatlar"])
@@ -682,9 +682,9 @@ def _render_comparison_slide(slide, slide_data: SlideContent, theme: ColorTheme,
             p_pt.space_after = Pt(8)
 
 
-def _render_timeline_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None):
+def _render_timeline_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """Bosqichma-bosqich jarayon yoki timeline slaydi."""
-    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name)
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
 
     steps = slide_data.steps or []
     count = min(len(steps), 4)
@@ -765,9 +765,9 @@ def _render_timeline_slide(slide, slide_data: SlideContent, theme: ColorTheme, c
         p_desc.font.color.rgb = RGBColor(*theme.text_body)
 
 
-def _render_conclusion_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None):
+def _render_conclusion_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """Xulosa, muhim iqtibos va asosiy chaqiriq slaydi."""
-    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name)
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
 
     card_w = Inches(11.5)
     card_left = Inches(0.9)
@@ -858,9 +858,9 @@ def _render_conclusion_slide(slide, slide_data: SlideContent, theme: ColorTheme,
         p_d.space_before = Pt(4)
 
 
-def _render_matrix_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None):
+def _render_matrix_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """2x2 Quadrant matritsa slaydi (4 ta bo'lim/yo'nalish)."""
-    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name)
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
 
     items = slide_data.matrix_items or slide_data.cards or []
     default_badges = ["01", "02", "03", "04"]
@@ -959,9 +959,9 @@ def _render_matrix_slide(slide, slide_data: SlideContent, theme: ColorTheme, cur
         p_desc.space_before = Pt(4)
 
 
-def _render_quote_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None):
+def _render_quote_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """Markazlashtirilgan katta iqtibos / asosiy tezis slaydi."""
-    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name)
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
 
     card_w = Inches(11.5)
     card_h = Inches(4.15)
@@ -1053,9 +1053,9 @@ def _render_quote_slide(slide, slide_data: SlideContent, theme: ColorTheme, curr
     p_ab.alignment = PP_ALIGN.CENTER
 
 
-def _render_checklist_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None):
+def _render_checklist_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
     """Checklist va tasdiqlangan qoidalar/punktlar slaydi."""
-    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name)
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
 
     items = slide_data.checklist or []
     if not items and slide_data.cards:
@@ -1138,7 +1138,161 @@ def _render_checklist_slide(slide, slide_data: SlideContent, theme: ColorTheme, 
         p_t.font.color.rgb = RGBColor(*theme.text_title)
 
 
-def generate_slide_preview_image(content: PresentationContent, theme_key: str = "dark_tech", author_name: Optional[str] = None) -> str:
+def render_slide_to_image(
+    slide_data: SlideContent,
+    theme: ColorTheme,
+    current_num: int,
+    total_slides: int,
+    author_name: Optional[str] = None,
+    logo_path: Optional[str] = None,
+) -> Image.Image:
+    """Ixtiyoriy bitta slaydni 1280x720 o'lchamdagi yuqori sifatli rasmga aylantiradi."""
+    W, H = 1280, 720
+    img = Image.new("RGB", (W, H), color=theme.bg_color)
+    draw = ImageDraw.Draw(img)
+
+    # Yuqori bezak chizig'i
+    draw.rectangle([(0, 0), (W, 10)], fill=theme.primary)
+
+    # Asosiy konteyner
+    draw.rounded_rectangle([(70, 60), (W - 70, H - 60)], radius=18, fill=theme.card_bg, outline=theme.card_border, width=2)
+
+    # Badge va raqam
+    badge_text = (slide_data.category_badge or "SLAYD").upper()
+    draw.rounded_rectangle([(120, 95), (340, 135)], radius=8, fill=theme.badge_bg, outline=theme.primary, width=1)
+    draw.text((140, 108), f"📌 {badge_text[:20]}", fill=theme.badge_text)
+
+    draw.rounded_rectangle([(355, 95), (495, 135)], radius=8, fill=theme.card_bg, outline=theme.secondary, width=1)
+    draw.text((375, 108), f"📊 {current_num} / {total_slides}", fill=theme.secondary)
+
+    # Agar logotip bo'lsa yuqori o'ng burchakka joylashtirish
+    if logo_path and os.path.exists(logo_path):
+        try:
+            logo_img = Image.open(logo_path)
+            logo_img.thumbnail((140, 48), Image.Resampling.LANCZOS)
+            if logo_img.mode in ("RGBA", "LA") or (logo_img.mode == "P" and "transparency" in logo_img.info):
+                img.paste(logo_img, (W - 240, 90), mask=logo_img.convert("RGBA").split()[3])
+            else:
+                img.paste(logo_img, (W - 240, 90))
+        except Exception:
+            pass
+
+    # Sarlavha
+    t_text = slide_data.title
+    if len(t_text) > 48:
+        t_line1 = t_text[:46] + "..."
+    else:
+        t_line1 = t_text
+    draw.text((120, 160), t_line1, fill=theme.text_title)
+
+    # Subtitle
+    if slide_data.subtitle:
+        s_text = slide_data.subtitle[:80] + ("..." if len(slide_data.subtitle) > 80 else "")
+        draw.text((120, 205), s_text, fill=theme.text_muted)
+
+    # Tartib / Layout bo'yicha kontent chizish
+    content_top = 260
+    content_bottom = H - 120
+
+    if slide_data.layout == "title_slide" or current_num == 1:
+        draw.rounded_rectangle([(120, 260), (740, 480)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=1)
+        draw.text((150, 290), "🌟 TAQDIMOT REJASI & MAQSADI", fill=theme.primary)
+        draw.text((150, 335), f"• Mavzu: {slide_data.title[:65]}", fill=theme.text_body)
+        if slide_data.subtitle:
+            draw.text((150, 375), f"• Tavsif: {slide_data.subtitle[:65]}", fill=theme.text_muted)
+        draw.text((150, 415), f"• Slaydlar soni: {total_slides} ta professional slayd", fill=theme.secondary)
+
+        if author_name:
+            draw.rounded_rectangle([(120, 505), (550, 555)], radius=8, fill=theme.badge_bg, outline=theme.secondary, width=1)
+            draw.text((140, 520), f"👨‍💻 Tayyorladi: {author_name}", fill=theme.secondary)
+
+        draw.rounded_rectangle([(770, 260), (W - 120, 555)], radius=12, fill=theme.bg_color, outline=theme.primary, width=2)
+        draw.text((800, 290), f"{theme.emoji} {theme.name}", fill=theme.primary)
+        draw.text((800, 345), "✓ Zamonaviy 16:9 Widescreen", fill=theme.text_body)
+        draw.text((800, 395), "✓ Gemini AI Professional Kontent", fill=theme.text_body)
+        draw.text((800, 445), "✓ Tayyor Spiker Nutqi", fill=theme.text_body)
+        draw.text((800, 495), "✓ PowerPoint & PDF", fill=theme.secondary)
+
+    elif slide_data.stats and (slide_data.layout == "stats_metrics" or len(slide_data.stats) >= 2):
+        st_list = slide_data.stats[:4]
+        num_cards = max(len(st_list), 1)
+        card_w = int((W - 240 - 25 * (num_cards - 1)) / num_cards)
+        for i, st in enumerate(st_list):
+            c_x = 120 + i * (card_w + 25)
+            draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
+            draw.rounded_rectangle([(c_x + 15, content_top + 15), (c_x + 60, content_top + 20)], radius=3, fill=theme.primary)
+            draw.text((c_x + 20, content_top + 40), st.number[:10], fill=theme.primary)
+            draw.text((c_x + 20, content_top + 110), st.label[:25], fill=theme.text_title)
+            if st.description:
+                draw.text((c_x + 20, content_top + 160), st.description[:60], fill=theme.text_muted)
+
+    elif slide_data.comparison_col1 and slide_data.comparison_col2:
+        col_w = int((W - 240 - 30) / 2)
+        cols = [
+            (slide_data.comparison_col1, 120, theme.text_muted, "✕"),
+            (slide_data.comparison_col2, 120 + col_w + 30, theme.primary, "✓"),
+        ]
+        for c_data, c_x, hl_color, icon in cols:
+            draw.rounded_rectangle([(c_x, content_top), (c_x + col_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
+            draw.text((c_x + 25, content_top + 25), f"{icon} {c_data.header[:30]}", fill=hl_color)
+            for p_idx, pt in enumerate(c_data.points[:5]):
+                draw.text((c_x + 25, content_top + 80 + p_idx * 45), f"• {pt[:45]}", fill=theme.text_body)
+
+    elif slide_data.steps and slide_data.layout == "timeline_steps":
+        st_list = slide_data.steps[:4]
+        num_cards = max(len(st_list), 1)
+        card_w = int((W - 240 - 20 * (num_cards - 1)) / num_cards)
+        for i, step in enumerate(st_list):
+            c_x = 120 + i * (card_w + 20)
+            draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
+            draw.rounded_rectangle([(c_x + 20, content_top + 20), (c_x + 65, content_top + 65)], radius=22, fill=theme.primary)
+            draw.text((c_x + 35, content_top + 33), str(i + 1), fill=theme.bg_color)
+            draw.text((c_x + 20, content_top + 85), step.title[:22], fill=theme.text_title)
+            draw.text((c_x + 20, content_top + 130), step.description[:65], fill=theme.text_muted)
+
+    elif slide_data.quote_text or slide_data.layout == "quote_highlight":
+        draw.rounded_rectangle([(120, content_top), (W - 120, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.primary, width=2)
+        draw.text((160, content_top + 30), "“", fill=theme.secondary)
+        q_text = slide_data.quote_text or slide_data.highlight_takeaway or slide_data.title
+        draw.text((160, content_top + 80), f'"{q_text[:110]}"', fill=theme.text_title)
+        author = slide_data.quote_author or author_name or "Ekspert xulosasi"
+        draw.rounded_rectangle([(160, content_bottom - 70), (480, content_bottom - 25)], radius=8, fill=theme.badge_bg, outline=theme.secondary, width=1)
+        draw.text((180, content_bottom - 55), f"— {author}", fill=theme.secondary)
+
+    elif slide_data.checklist and slide_data.layout == "checklist_points":
+        items = slide_data.checklist[:5]
+        item_h = int((content_bottom - content_top - 15 * (len(items) - 1)) / max(len(items), 1))
+        for i, itm in enumerate(items):
+            i_y = content_top + i * (item_h + 15)
+            draw.rounded_rectangle([(120, i_y), (W - 120, i_y + item_h)], radius=10, fill=theme.bg_color, outline=theme.card_border, width=1)
+            draw.text((150, i_y + 15), f"✓  {itm[:85]}", fill=theme.text_body)
+
+    else:
+        cards = slide_data.cards or [CardItem(title="Asosiy tushuncha", description=slide_data.title, badge="01")]
+        cards = cards[:4]
+        num_cards = max(len(cards), 1)
+        card_w = int((W - 240 - 25 * (num_cards - 1)) / num_cards)
+        for i, card in enumerate(cards):
+            c_x = 120 + i * (card_w + 25)
+            draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
+            badge_t = card.badge or f"0{i+1}"
+            draw.text((c_x + 20, content_top + 25), badge_t.upper(), fill=theme.secondary)
+            draw.text((c_x + 20, content_top + 65), card.title[:24], fill=theme.text_title)
+            draw.text((c_x + 20, content_top + 115), card.description[:85], fill=theme.text_body)
+
+    # Footer
+    author_ft = f"  •  Muallif: {author_name}" if author_name else ""
+    draw.text((120, H - 95), f"✨ Gemini AI Professional  •  Slayd {current_num} / {total_slides}  •  {theme.name}{author_ft}", fill=theme.text_muted)
+
+    return img
+
+
+def generate_slide_preview_image(
+    content: PresentationContent,
+    theme_key: str = "dark_tech",
+    author_name: Optional[str] = None,
+    logo_path: Optional[str] = None,
+) -> str:
     """Slayd 1 ning yuqori sifatli visual prevyusini (1280x720) rasm qilib yaratadi."""
     theme = config.THEMES.get(theme_key, config.THEMES[config.DEFAULT_THEME])
     safe_topic = "".join(c for c in content.topic if c.isalnum() or c in (" ", "_", "-")).strip()
@@ -1146,61 +1300,47 @@ def generate_slide_preview_image(content: PresentationContent, theme_key: str = 
     os.makedirs(config.GENERATED_DIR, exist_ok=True)
     out_path = os.path.join(config.GENERATED_DIR, f"preview_{safe_topic}_{theme_key}.png")
 
-    W, H = 1280, 720
-    img = Image.new("RGB", (W, H), color=theme.bg_color)
-    draw = ImageDraw.Draw(img)
-
-    # Accent top bar
-    draw.rectangle([(0, 0), (W, 10)], fill=theme.primary)
-
-    # Card container
-    draw.rounded_rectangle([(80, 70), (W - 80, H - 70)], radius=18, fill=theme.card_bg, outline=theme.card_border, width=2)
-
-    # Badge
-    s1 = content.slides[0] if content.slides else None
-    badge_text = (s1.category_badge if s1 else "TAQDIMOT").upper()
-    draw.rounded_rectangle([(140, 120), (380, 160)], radius=8, fill=theme.badge_bg, outline=theme.primary, width=1)
-    draw.text((160, 132), f"📌 {badge_text}", fill=theme.badge_text)
-
-    # Slide count badge
-    sc_text = f"📊 {len(content.slides)} TA SLAYD"
-    draw.rounded_rectangle([(400, 120), (580, 160)], radius=8, fill=theme.card_bg, outline=theme.secondary, width=1)
-    draw.text((420, 132), sc_text, fill=theme.secondary)
-
-    # Title text
-    title_text = s1.title if s1 else content.topic
-    if len(title_text) > 42:
-        t_line1 = title_text[:40] + "..."
-    else:
-        t_line1 = title_text
-    draw.text((140, 200), t_line1, fill=theme.text_title)
-
-    # Subtitle
-    sub_text = (s1.subtitle if s1 and s1.subtitle else content.topic)[:75]
-    draw.text((140, 270), sub_text, fill=theme.text_muted)
-
-    # Author if provided
-    if author_name:
-        draw.rounded_rectangle([(140, 350), (540, 400)], radius=8, fill=theme.badge_bg, outline=theme.secondary, width=1)
-        draw.text((160, 365), f"👨‍💻 Tayyorladi: {author_name}", fill=theme.secondary)
-
-    # Decorative mock elements on right side
-    right_x = 760
-    draw.rounded_rectangle([(right_x, 120), (W - 130, H - 120)], radius=14, fill=theme.bg_color, outline=theme.primary, width=2)
-    draw.text((right_x + 30, 150), f"{theme.emoji} {theme.name}", fill=theme.primary)
-    draw.rounded_rectangle([(right_x + 30, 210), (W - 160, 270)], radius=8, fill=theme.card_bg, outline=theme.card_border, width=1)
-    draw.text((right_x + 45, 230), "✓ 16:9 Widescreen Zamonaviy Slayd", fill=theme.text_body)
-    draw.rounded_rectangle([(right_x + 30, 290), (W - 160, 350)], radius=8, fill=theme.card_bg, outline=theme.card_border, width=1)
-    draw.text((right_x + 45, 310), "✓ Spiker Nutqi & Har Xil Layoutlar", fill=theme.text_body)
-    draw.rounded_rectangle([(right_x + 30, 370), (W - 160, 430)], radius=8, fill=theme.card_bg, outline=theme.card_border, width=1)
-    draw.text((right_x + 45, 390), "✓ PowerPoint (.pptx) & PDF format", fill=theme.text_body)
-
-    # Footer line
-    author_ft = f"  •  Muallif: {author_name}" if author_name else ""
-    draw.text((140, H - 110), f"✨ Gemini AI Professional Engine  •  Theme: {theme.name}{author_ft}", fill=theme.text_muted)
-
+    s1 = content.slides[0] if content.slides else SlideContent(layout="title_slide", category_badge="TAQDIMOT", title=content.topic)
+    img = render_slide_to_image(
+        slide_data=s1,
+        theme=theme,
+        current_num=1,
+        total_slides=len(content.slides),
+        author_name=author_name,
+        logo_path=logo_path,
+    )
     img.save(out_path, "PNG", quality=95)
     return out_path
+
+
+def generate_all_slides_preview_images(
+    content: PresentationContent,
+    theme_key: str = "dark_tech",
+    author_name: Optional[str] = None,
+    logo_path: Optional[str] = None,
+) -> List[str]:
+    """Barcha slaydlarni yuqori sifatli 1280x720 PNG rasmlari ko'rinishida generatsiya qiladi."""
+    theme = config.THEMES.get(theme_key, config.THEMES[config.DEFAULT_THEME])
+    safe_topic = "".join(c for c in content.topic if c.isalnum() or c in (" ", "_", "-")).strip()
+    safe_topic = safe_topic[:20].replace(" ", "_") or "presentation"
+    os.makedirs(config.GENERATED_DIR, exist_ok=True)
+
+    image_paths = []
+    total_slides = len(content.slides)
+    for idx, slide_data in enumerate(content.slides):
+        out_path = os.path.join(config.GENERATED_DIR, f"slide_{safe_topic}_{theme_key}_{idx+1}.png")
+        img = render_slide_to_image(
+            slide_data=slide_data,
+            theme=theme,
+            current_num=idx + 1,
+            total_slides=total_slides,
+            author_name=author_name,
+            logo_path=logo_path,
+        )
+        img.save(out_path, "PNG", quality=95)
+        image_paths.append(out_path)
+
+    return image_paths
 
 
 def convert_pptx_to_pdf(

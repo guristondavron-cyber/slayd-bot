@@ -706,3 +706,130 @@ def generate_mock_presentation(
 
     init_pres = PresentationContent(topic=topic, language=language, slides=base_slides)
     return _ensure_slide_count(init_pres, slide_count, topic, language, with_speech=with_speech)
+
+
+async def translate_presentation_content(
+    content: PresentationContent,
+    target_lang: str,
+    api_key: Optional[str] = None,
+) -> PresentationContent:
+    """Mavjud taqdimot kontentini boshqa tilga (uz, ru, en) 100% tartibini saqlagan holda tarjima qiladi."""
+    target_names = {
+        "uz": "o'zbek adabiy tili (lotin alifbosida)",
+        "ru": "грамотный русский язык",
+        "en": "professional English",
+    }
+    lang_name = target_names.get(target_lang, "o'zbek tili")
+    
+    key = api_key or config.GEMINI_API_KEY
+    if not key:
+        return content
+
+    client = genai.Client(api_key=key)
+    candidate_models = [
+        config.GEMINI_MODEL,
+        "gemini-2.5-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+    ]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
+
+    current_json = content.model_dump_json(indent=2)
+    prompt = f"""Siz professional taqdimotlar tarjimoni va muharririsiz.
+Quyida berilgan taqdimot JSON ma'lumotlarini {lang_name}ga to'liq, sifatli va adabiy tarzda tarjima qiling.
+
+MUHIM SHARTLAR:
+1. JSON sxemasi va tuzilishi to'liq saqlansin. Slaydlar soni va ularning 'layout' qiymatlari aslo o'zgarmasin.
+2. Barcha sarlavhalar, subtitrlar, kartochka matnlari ('title', 'description', 'badge'), statistika yozuvlari ('label', 'description'), bosqichlar ('title', 'description'), iqtiboslar, xulosalar va agar mavjud bo'lsa spiker nutqi ('speaker_speech') {lang_name}ga tarjima qilinsin.
+3. 'language' maydoniga "{target_lang}" yozilsin.
+4. Javobni FAQAT va FAQAT to'g'ri PresentationContent JSON formatida qaytaring, boshqa hech qanday izoh qo'shmang.
+
+ASL TAQDIMOT KONTENTI:
+{current_json}
+"""
+
+    for model_name in models_to_try:
+        try:
+            logger.info(f"Taqdimot {target_lang} tiliga tarjima qilinmoqda ({model_name})...")
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=PresentationContent,
+                    temperature=0.3,
+                ),
+            )
+            raw = response.text or ""
+            cleaned = _clean_json_string(raw)
+            translated = PresentationContent.model_validate_json(cleaned)
+            translated.language = target_lang
+            return translated
+        except Exception as e:
+            logger.warning(f"Tarjimada {model_name} da xatolik: {e}")
+            continue
+
+    logger.error("Tarjima amalga oshmadi, asl kontent qaytarilmoqda.")
+    return content
+
+
+async def tweak_single_slide(
+    slide: SlideContent,
+    instruction: str,
+    language: str = "uz",
+    api_key: Optional[str] = None,
+) -> SlideContent:
+    """Muayyan bitta slaydni foydalanuvchining ko'rsatmasi asosida AI yordamida tahrirlaydi."""
+    key = api_key or config.GEMINI_API_KEY
+    if not key:
+        return slide
+
+    client = genai.Client(api_key=key)
+    candidate_models = [
+        config.GEMINI_MODEL,
+        "gemini-2.5-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+    ]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
+
+    current_slide_json = slide.model_dump_json(indent=2)
+    prompt = f"""Siz professional taqdimotlar dizayneri va muharririsiz.
+Mavjud slayd ma'lumotlari (JSON):
+{current_slide_json}
+
+FOYDALANUVCHINING TAHRIR BO'YICHA KO'RSATMASI:
+"{instruction}"
+
+TIL: {language}
+
+VAZIFA:
+Foydalanuvchi ko'rsatmasiga qat'iy amal qilgan holda ushbu slaydni takomillashtiring va qayta ishlang.
+Slaydning mavjud layout turini saqlang yoki agar ko'rsatmada talab qilingan bo'lsa moslashtiring.
+Agar foydalanuvchi matnni qisqartirish, fakt qo'shish, sarlavhani o'zgartirish yoki boshqa talab qo'ygan bo'lsa, uni to'liq bajaring.
+Javobni FAQAT SlideContent JSON formatida qaytaring, ortiqcha matnsiz.
+"""
+
+    for model_name in models_to_try:
+        try:
+            logger.info(f"Slayd tahrirlanmoqda ({model_name}): {instruction[:40]}...")
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=SlideContent,
+                    temperature=0.5,
+                ),
+            )
+            raw = response.text or ""
+            cleaned = _clean_json_string(raw)
+            updated_slide = SlideContent.model_validate_json(cleaned)
+            return updated_slide
+        except Exception as e:
+            logger.warning(f"Slaydni tahrirlashda {model_name} da xatolik: {e}")
+            continue
+
+    return slide
