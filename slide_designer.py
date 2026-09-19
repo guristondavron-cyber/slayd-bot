@@ -325,7 +325,7 @@ def _render_header(slide, slide_data: SlideContent, theme: ColorTheme, current_n
     tf_f = footer_box.text_frame
     p_f = tf_f.paragraphs[0]
     author_tag = f"  •  👨‍💻 Tayyorladi: {author_name}" if author_name else ""
-    p_f.text = f"✨ Gemini AI  •  Slayd {current_num} / {total_slides}{author_tag}"
+    p_f.text = f"@SlaydchiAkabot  •  Slayd {current_num} / {total_slides}{author_tag}"
     p_f.font.size = Pt(10)
     p_f.font.name = FONT_FAMILY_BODY
     p_f.font.color.rgb = RGBColor(*theme.text_muted)
@@ -1209,7 +1209,7 @@ def render_slide_to_image(
         draw.rounded_rectangle([(770, 260), (W - 120, 555)], radius=12, fill=theme.bg_color, outline=theme.primary, width=2)
         draw.text((800, 290), f"{theme.emoji} {theme.name}", fill=theme.primary)
         draw.text((800, 345), "✓ Zamonaviy 16:9 Widescreen", fill=theme.text_body)
-        draw.text((800, 395), "✓ Gemini AI Professional Kontent", fill=theme.text_body)
+        draw.text((800, 395), "✓ @SlaydchiAkabot Kontent", fill=theme.text_body)
         draw.text((800, 445), "✓ Tayyor Spiker Nutqi", fill=theme.text_body)
         draw.text((800, 495), "✓ PowerPoint & PDF", fill=theme.secondary)
 
@@ -1282,7 +1282,7 @@ def render_slide_to_image(
 
     # Footer
     author_ft = f"  •  Muallif: {author_name}" if author_name else ""
-    draw.text((120, H - 95), f"✨ Gemini AI Professional  •  Slayd {current_num} / {total_slides}  •  {theme.name}{author_ft}", fill=theme.text_muted)
+    draw.text((120, H - 95), f"@SlaydchiAkabot  •  Slayd {current_num} / {total_slides}  •  {theme.name}{author_ft}", fill=theme.text_muted)
 
     return img
 

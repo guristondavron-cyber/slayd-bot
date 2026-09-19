@@ -498,7 +498,7 @@ async def process_user_promo(message: Message, state: FSMContext):
 @router.callback_query(F.data == "btn_tariffs")
 async def cb_tariffs(callback: CallbackQuery):
     await safe_callback_answer(callback)
-    payment_info = database.get_setting("payment_info", "Karta raqami: 8600 **** **** **** (Admin belgilaydi)")
+    payment_info = database.get_formatted_payment_info()
 
     text = (
         "💎 <b>Qo'shimcha Slaydlar Uchun Tariflar</b>\n\n"
@@ -2090,11 +2090,14 @@ async def cb_prompt_payment_info(callback: CallbackQuery, state: FSMContext):
         return
     await safe_callback_answer(callback)
     await state.set_state(AdminState.waiting_for_payment_info)
-    current = database.get_setting("payment_info", "")
+    current = database.get_formatted_payment_info()
     text = (
         "💳 <b>Karta Raqami va To'lov Ma'lumotlarini Sozlash:</b>\n\n"
-        f"<b>Joriy matn:</b>\n{current}\n\n"
-        "Yangi to'lov matnini va karta raqamingizni yozib yuboring:\n\n"
+        f"<b>Joriy ma'lumotlar:</b>\n{current}\n\n"
+        "Yangi karta raqami va karta egasining ism-familiyasini yozib yuboring.\n\n"
+        "<b>Namuna:</b>\n"
+        "<code>💳 Karta: 8600 1234 5678 9012\n👤 Egasi: ALISHER NAVOIY</code>\n\n"
+        "<i>(Yoki faqat 16 xonali karta raqamingizni yozsangiz ham bot o'zi chiroyli qilib oladi)</i>\n\n"
         "Bekor qilish uchun /cancel yozing."
     )
     await callback.message.edit_text(text, parse_mode="HTML")
@@ -2112,7 +2115,12 @@ async def process_payment_info(message: Message, state: FSMContext):
 
     database.set_setting("payment_info", text)
     await state.clear()
-    await message.answer("✅ To'lov ma'lumotlari muvaffaqiyatli yangilandi!", reply_markup=admin_menu_keyboard())
+    await message.answer(
+        "✅ To'lov ma'lumotlari muvaffaqiyatli yangilandi!\n\n"
+        f"<b>Botda ko'rinishi:</b>\n{database.get_formatted_payment_info()}",
+        parse_mode="HTML",
+        reply_markup=admin_menu_keyboard(),
+    )
 
 
 # 5. Kanal sozlamasi

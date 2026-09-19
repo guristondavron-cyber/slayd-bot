@@ -161,6 +161,7 @@ def init_db():
             "initial_slides_limit": "3",
             "referral_reward": "2",
             "payment_info": "💳 Karta raqam: 8600 0000 0000 0000\nEgasi: Admin\nTo'lov qilgach chekni adminga yuboring.",
+            "card_holder": "",
         }
 
         for key, val in default_settings.items():
@@ -268,6 +269,7 @@ def init_db():
             "initial_slides_limit": "3",
             "referral_reward": "2",
             "payment_info": "💳 Karta raqam: 8600 0000 0000 0000\nEgasi: Admin\nTo'lov qilgach chekni adminga yuboring.",
+            "card_holder": "",
         }
 
         for key, val in default_settings.items():
@@ -298,6 +300,30 @@ def set_setting(key: str, value: str):
         cursor.execute("INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, str(value)))
     conn.commit()
     conn.close()
+
+
+def get_formatted_payment_info() -> str:
+    """To'lov ma'lumotlarini (karta raqami va egasining ism-familiyasi) chiroyli qilib qaytaradi."""
+    payment_info = get_setting("payment_info", "").strip()
+    card_holder = get_setting("card_holder", "").strip()
+
+    if not payment_info:
+        payment_info = "💳 Karta raqam: 8600 0000 0000 0000\nEgasi: Admin\nTo'lov qilgach chekni adminga yuboring."
+
+    # Agar payment_info faqat 16 xonali raqamlar bo'lsa (masalan foydalanuvchi Neonda faqat raqam yozgan bo'lsa)
+    clean_digits = payment_info.replace(" ", "").replace("-", "")
+    if clean_digits.isdigit() and len(clean_digits) == 16:
+        card_formatted = f"{clean_digits[:4]} {clean_digits[4:8]} {clean_digits[8:12]} {clean_digits[12:]}"
+        formatted = f"💳 <b>Karta:</b> <code>{card_formatted}</code>"
+        if card_holder:
+            formatted += f"\n👤 <b>Karta egasi:</b> {card_holder}"
+        return formatted
+
+    # Agar alohida card_holder mavjud bo'lsa va payment_info ichida hali yozilmagan bo'lsa
+    if card_holder and card_holder.lower() not in payment_info.lower():
+        return f"{payment_info}\n👤 <b>Karta egasi:</b> {card_holder}"
+
+    return payment_info
 
 
 # ------------------ ADMINLAR BOSHQARUVI ------------------
