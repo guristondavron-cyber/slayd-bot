@@ -170,6 +170,32 @@ def init_db():
         """)
 
         cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sponsor_channels (
+            id SERIAL PRIMARY KEY,
+            channel_id TEXT NOT NULL UNIQUE,
+            channel_title TEXT NOT NULL,
+            channel_username TEXT NOT NULL,
+            channel_url TEXT,
+            is_active INT DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS payments (
+            id SERIAL PRIMARY KEY,
+            user_id BIGINT NOT NULL,
+            provider TEXT NOT NULL,
+            amount INT NOT NULL,
+            slides_count INT NOT NULL,
+            status TEXT DEFAULT 'pending',
+            external_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            paid_at TIMESTAMP
+        );
+        """)
+
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS used_promocodes (
             user_id BIGINT,
             code TEXT,
@@ -286,6 +312,32 @@ def init_db():
             bonus_slides INTEGER,
             activations_left INTEGER,
             created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS sponsor_channels (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            channel_id TEXT NOT NULL UNIQUE,
+            channel_title TEXT NOT NULL,
+            channel_username TEXT NOT NULL,
+            channel_url TEXT,
+            is_active INTEGER DEFAULT 1,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS payments (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            user_id INTEGER NOT NULL,
+            provider TEXT NOT NULL,
+            amount INTEGER NOT NULL,
+            slides_count INTEGER NOT NULL,
+            status TEXT DEFAULT 'pending',
+            external_id TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            paid_at TIMESTAMP
         );
         """)
 
@@ -861,3 +913,104 @@ def get_last_presentation(user_id: int) -> Optional[Dict[str, Any]]:
 
 init_db()
 
+
+
+def add_sponsor_channel(channel_id: str, channel_title: str, channel_username: str, channel_url: str) -> bool:
+    """Yangi homiy kanal qo'shadi yoki yangilaydi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("""
+            INSERT INTO sponsor_channels (channel_id, channel_title, channel_username, channel_url, is_active)
+            VALUES (?, ?, ?, ?, 1)
+            ON CONFLICT (channel_id) DO UPDATE SET
+                channel_title = excluded.channel_title,
+                channel_username = excluded.channel_username,
+                channel_url = excluded.channel_url,
+                is_active = 1
+        """, (channel_id, channel_title, channel_username, channel_url))
+        conn.commit()
+        conn.close()
+        return True
+    except Exception:
+        conn.close()
+        return False
+
+
+def get_active_sponsor_channels() -> List[Dict[str, Any]]:
+    """Faol homiy kanallar ro'yxatini oladi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM sponsor_channels WHERE is_active = 1 ORDER BY id ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows] if rows else []
+
+
+def get_all_sponsor_channels() -> List[Dict[str, Any]]:
+    """Barcha homiy kanallarni oladi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM sponsor_channels ORDER BY id ASC")
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows] if rows else []
+
+
+def delete_sponsor_channel(channel_id: str) -> bool:
+    """Homiy kanalni o'chiradi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("DELETE FROM sponsor_channels WHERE channel_id = ?", (channel_id,))
+    conn.commit()
+    conn.close()
+    return True
+
+
+def create_payment_order(user_id: int, provider: str, amount: int, slides_count: int, external_id: Optional[str] = None) -> int:
+    """Click yoki Payme uchun yangi to'lov buyurtmasi yaratadi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if IS_POSTGRES:
+        cursor.execute("""
+            INSERT INTO payments (user_id, provider, amount, slides_count, status, external_id, created_at)
+            VALUES (?, ?, ?, ?, 'pending', ?, CURRENT_TIMESTAMP)
+            RETURNING id
+        """, (user_id, provider, amount, slides_count, external_id))
+        row = cursor.fetchone()
+        order_id = row["id"] if row else 0
+    else:
+        cursor.execute("""
+            INSERT INTO payments (user_id, provider, amount, slides_count, status, external_id, created_at)
+            VALUES (?, ?, ?, ?, 'pending', ?, CURRENT_TIMESTAMP)
+        """, (user_id, provider, amount, slides_count, external_id))
+        order_id = cursor.cursor.lastrowid
+    conn.commit()
+    conn.close()
+    return order_id
+
+
+def complete_payment_order(order_id: int, external_id: Optional[str] = None) -> Tuple[bool, int, int]:
+    """To'lov muvaffaqiyatli tasdiqlanganda 'paid' qiladi va balans qo'shadi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM payments WHERE id = ? AND status = 'pending'", (order_id,))
+    order = cursor.fetchone()
+    if not order:
+        conn.close()
+        return False, 0, 0
+
+    user_id = order["user_id"]
+    slides = order["slides_count"]
+
+    cursor.execute("""
+        UPDATE payments SET status = 'paid', external_id = COALESCE(?, external_id), paid_at = CURRENT_TIMESTAMP
+        WHERE id = ?
+    """, (external_id, order_id))
+
+    cursor.execute("""
+        UPDATE users SET slides_left = slides_left + ? WHERE user_id = ?
+    """, (slides, user_id))
+    conn.commit()
+    conn.close()
+    return True, user_id, slides

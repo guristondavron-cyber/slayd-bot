@@ -126,8 +126,10 @@ def build_system_prompt(
         ),
     }.get(mode, "Executive taqdimot tayyorlang.")
 
-    return f"""Siz dunyo darajasidagi professional taqdimotlar bo'yicha oliy toifali mutaxassis, tadqiqotchi va biznes konsultantisiz.
-Sizning vazifangiz quyidagi mavzu bo'yicha ROPPA-ROSA {slide_count} TA SLAYDDAN IBORAT to'liq, mukammal, chuqur mazmunli va har bir slaydi bir-biridan butunlay farq qiluvchi taqdimot kontentini tayyorlash:
+    return f"""Siz jahon miqyosidagi yetakchi taqdimot dizayneri (Canva/McKinsey/Apple darajasidagi) va yuqori darajadagi strategik spikersiz.
+Siz yaratgan taqdimotlar xuddi professional inson dizayneri tomonidan soatlab ijodiy o'ylab topilgandek, jonli, ta'sirchan, zamonaviy va chuqur mantiqqa ega bo'lishi shart.
+Sun'iy intellekt qoliplari (quruq, shablon, robotga o'xshash jumlalar) mutlaqo TAQIQLANADI!
+
 MAVZU: "{topic}"
 
 {mode_guidelines}
@@ -135,34 +137,38 @@ MAVZU: "{topic}"
 TIL TALABI:
 {lang_instruction}
 
-MUHIM QAT'IY TALABLAR:
+MUHIM QAT'IY TALABLAR (INSON DARAJASIDAGI DIZAYN VA MAZMUN):
 1. JAMI SLAYDLAR SONI: 'slides' ro'yxatida ANIQ VA ROPPA-ROSA {slide_count} TA SLAYD BO'LISHI SHART!
-   - Agar {slide_count} tadan kam (masalan 5 ta yoki 6 ta) slayd bersangiz, topshiriq qabul qilinmaydi.
-   - Slaydlar massivida aniq {slide_count} ta element bo'lishi MAJBUR!
+   - Kam ham, ko'p ham bo'lmasin. Aniq {slide_count} ta unikal slayd.
 
-2. QAT'IY QOIDA — SOHAVIY CHUQUR MA'LUMOT VA ANIQ FAKTLAR (HECH QANDAY SHABLON BO'LMASIN!):
-   - 'Asosiy tushuncha', 'Omil 1', 'Loyiha rejasi', 'Strategiya' kabi umumiy, quruq va qolip so'zlarni ISHLATISH QAT'IYAN MAN ETILADI!
-   - Har bir slaydda aynan "{topic}" mavzusiga to'g'ridan-to'g'ri tegishli bo'lgan real atamalar, aniq sanalar, ilmiy yoki biznes terminologiya, real statistik raqamlar, amaliy misollar va chuqur tahliliy ma'lumotlar berilsin.
-   - Har bir slayd uchun 'image_keyword' maydoniga slayd mavzusiga mos sifatli fotosurat topish uchun inglizcha 2-4 ta aniq so'zdan iborat qidiruv birikmasi yozing (masalan: 'cybersecurity firewall code', 'silk road architecture samarkand', 'solar power panel farm').
+2. INSON DIZAYNERI USLUBI — KUCHLI SARLAVHALAR VA MAZMUN (QAT'IY QOIDALAR):
+   - "Kirish", "Asosiy tushuncha", "Omil 1", "Strategiya 2", "Loyiha rejasi" kabi zerikarli va qolip so'zlar QAT'IYAN MAN ETILADI!
+   - Sarlavhalar xuddi Forbes yoki Harvard Business Review maqolalaridek o'quvchi diqqatini darhol jalb qiluvchi, natijaga va ma'noga yo'naltirilgan bo'lsin (masalan: "2026-yilgi burilish nuqtasi: Bozor qayerga qarab ketmoqda?", "Nega 78% an'anaviy yondashuvlar samarasiz?", "Raqamli intizom: Biznesni 3 barobar tezlashtirish yo'li").
+   - Kategoriya tegi ('category_badge') 1-2 so'zdan iborat professional belgi bo'lsin (masalan: 'STRATEGIK TAHLIL', 'ASOSIY METRIKA', 'BURILISH NUQTASI', 'YECHIM', 'YO'L XARITASI').
+   - Har bir karta yoki punktning izohi 15-25 ta so'zdan iborat, aniq atamalar, ma'lumotlar va amaliy tavsiyalar bilan to'ldirilsin.
 
-3. HAR BIR SLAYD UNIKAL VA TURFA XIL BO'LISHI SHART (BIR XIL DIZAYN BO'LMASIN!):
-   - Ketma-ket ikkita bir xil layout ISHLATMANG! Slaydlar almashib, ko'rgazmali va qiziqarli bo'lsin.
-   - Mavjud layout turlaridan keng va xilma-xil foydalaning:
-     * "title_slide" (faqat 1-slayd uchun muhtasham muqova)
-     * "cards_grid" (3 ta asosiy sohaviy yo'nalish yoki tushuncha kartalari)
-     * "chart_slide" (haqiqiy PowerPoint diagrammasi: dinamika, nisbatlar yoki o'sish tendensiyalari uchun 'stats' maydonida 3-4 ta ko'rsatkich va 'chart_type': 'column' yoki 'pie')
-     * "stats_metrics" (aniq katta raqamlar, masalan '85%', '3.5x', '$12M', '24/7' bilan 4 ta statistika)
-     * "comparison" (muammo vs yechim, an'anaviy vs yangi yondashuv - 2 ta kontrast ustun)
-     * "timeline_steps" (1-bosqich -> 2-bosqich -> 3-bosqich -> 4-bosqich yo'l xaritasi)
-     * "matrix_2x2" (4 ta burchakli matritsa: 'matrix_items' maydonida 4 ta karta)
-     * "quote_highlight" (markaziy kuchli fikr yoki iqtibos: 'quote_text' va 'quote_author' maydonlari)
-     * "checklist_points" (3-5 ta tasdiqlangan amaliy qoida yoki tamoyil: 'checklist' maydoni)
-     * "conclusion" (oxirgi {slide_count}-slayd uchun yakuniy chaqiriq va natijalar)
+3. VIZUAL SAN'AT VA FOTOGRAFIA ('image_keyword'):
+   - Har bir slayd uchun 'image_keyword' maydoniga slayd mavzusiga mos, go'zal va fotorealistik rasm generatsiya qilish uchun inglizcha 3-5 ta sifatli so'z kiriting.
+   - Masalan: "futuristic clean laboratory scientist microscope 4k", "uzbekistan samarkand registan historical sunset cinematic", "cybersecurity digital shield protection high tech glowing".
+   - Bu rasmlar slaydda zamonaviy 60/40 insoniy vizual kompozitsiya hosil qilish uchun ishlatiladi.
 
-MATN VA NUTQ TALABLARI:
-- Matnlar lo'nda, aniq, qiziqarli va professional bo'lsin.
-- {speech_instruction}
-- 'slides' massivida jami {slide_count} ta to'liq element bo'lsin!
+4. HAR BIR SLAYDNING VIZUAL STRUKTURASI ALMASHIB TURISHI SHART:
+   - Ketma-ket bir xil layout ishlatilmasin! Tomoshabin har bir slaydda yangi vizual shaklni ko'rsin.
+   - Foydalaniladigan layout turlari:
+     * "title_slide" (1-slayd uchun ta'sirchan muqova)
+     * "cards_grid" (3 ta asosiy yo'nalish yoki g'oya kartalari)
+     * "chart_slide" (haqiqiy PowerPoint diagrammasi: dinamika yoki taqsimot ko'rsatkichlari)
+     * "stats_metrics" (katta, hayratlanarli raqamlar: masalan '+140%', '$4.2M', '99.4%', '24/7')
+     * "comparison" (an'anaviy vs innovatsion yechim solishtiruvi)
+     * "timeline_steps" (bosqichma-bosqich yo'l xaritasi yoki qadamlar)
+     * "matrix_2x2" (4 ta asosiy burchak yoki strategik ustun)
+     * "quote_highlight" (kuchli falsafiy fikr yoki bozor eksperti xulosasi)
+     * "checklist_points" (amaliy 4 ta oltin qoida yoki harakatlar tekshiruv ro'yxati)
+     * "conclusion" (yakuniy kuchli xulosa va harakatga chorlov)
+
+5. JONLI VA TA'SIRCHAN SPIKER NUTQI ('speaker_speech'):
+   - {speech_instruction}
+   - Nutq quruq matn o'qish emas, balki zalga qarab jonli murojaat qiladigan professional notiq ovozida bo'lsin.
 """
 
 
@@ -374,8 +380,9 @@ async def generate_presentation_with_gemini(
     with_speech: bool = True,
     mode: str = "general",
     api_key: Optional[str] = None,
+    use_search: bool = False,
 ) -> PresentationContent:
-    """Gemini API orqali ko'p modelli zanjir (fallback chain) bilan taqdimot generatsiya qiladi."""
+    """Gemini API orqali ko'p modelli zanjir (fallback chain) va Google Search grounding bilan taqdimot generatsiya qiladi."""
     key = api_key or config.GEMINI_API_KEY
     if not key:
         raise ValueError(
@@ -396,6 +403,30 @@ async def generate_presentation_with_gemini(
     models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
 
     last_error = None
+
+    # 1. Agar use_search faollashtirilgan bo'lsa, Google Search grounding bilan sinab ko'ramiz
+    if use_search:
+        for model_name in models_to_try[:2]:
+            try:
+                logger.info(f"Gemini {model_name} Google Search grounding bilan ishga tushirilmoqda: {topic}...")
+                response = await client.aio.models.generate_content(
+                    model=model_name,
+                    contents=prompt,
+                    config=types.GenerateContentConfig(
+                        tools=[types.Tool(google_search=types.GoogleSearch())],
+                        response_mime_type="application/json",
+                        response_schema=PresentationContent,
+                        temperature=0.7,
+                    ),
+                )
+                raw_text = response.text or ""
+                cleaned_json = _clean_json_string(raw_text)
+                presentation = PresentationContent.model_validate_json(cleaned_json)
+                return _ensure_slide_count(presentation, slide_count, topic, language, with_speech=with_speech)
+            except Exception as se:
+                logger.warning(f"Google Search grounding xatosi ({model_name}): {se}. Standart rejimga o'tilmoqda...")
+
+    # 2. Standart strukturaviy generatsiya
     for model_name in models_to_try:
         try:
             logger.info(f"Gemini {model_name} orqali {slide_count} ta slayd yaratilmoqda (rejim: {mode}, nutq: {with_speech})...")

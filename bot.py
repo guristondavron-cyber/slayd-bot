@@ -44,6 +44,7 @@ from gemini_service import (
 )
 from slide_designer import (
     create_presentation_file,
+    create_presentation_pdf,
     generate_speaker_speech_file,
     generate_slide_preview_image,
     generate_all_slides_preview_images,
@@ -103,6 +104,7 @@ class UserPromoState(StatesGroup):
 
 class AdminState(StatesGroup):
     waiting_for_channel = State()
+    waiting_for_add_sponsor = State()
     waiting_for_initial_limit = State()
     waiting_for_referral_reward = State()
     waiting_for_broadcast_message = State()
@@ -150,36 +152,69 @@ async def safe_edit_or_answer(
     )
 
 
-async def check_channel_subscription(bot: Bot, user_id: int) -> Tuple[bool, str]:
+async def check_channel_subscription(bot: Bot, user_id: int) -> Tuple[bool, Any]:
     if is_admin(user_id):
-        return True, ""
+        return True, []
 
-    channel = database.get_setting("required_channel", "").strip()
-    if not channel:
-        return True, ""
-
-    if not channel.startswith("@") and not channel.startswith("-100"):
-        channel = "@" + channel
-
+    unsub = []
+    # 1. Barcha faol homiy kanallarni tekshirish
     try:
-        member = await bot.get_chat_member(chat_id=channel, user_id=user_id)
-        if member.status in ("member", "administrator", "creator"):
-            return True, channel
-        return False, channel
-    except Exception as e:
-        logger.warning(f"Kanal obunasini tekshirishda ogohlantirish: {e}")
-        return True, channel
+        sponsors = database.get_active_sponsor_channels()
+    except Exception:
+        sponsors = []
+
+    for sp in sponsors:
+        ch_id = sp.get("channel_id") or sp.get("channel_username")
+        try:
+            member = await bot.get_chat_member(chat_id=ch_id, user_id=user_id)
+            if member.status not in ("member", "administrator", "creator"):
+                unsub.append({
+                    "title": sp.get("channel_title", "Homiy Kanal"),
+                    "url": sp.get("channel_url") or f"https://t.me/{sp.get('channel_username','').lstrip('@')}",
+                    "channel_id": ch_id,
+                })
+        except Exception as e:
+            logger.warning(f"Homiy kanal {ch_id} tekshirishda xatolik: {e}")
+
+    # 2. Asosiy majburiy kanal (settings dagi)
+    single_ch = database.get_setting("required_channel", "").strip()
+    if single_ch:
+        ch_id = single_ch if (single_ch.startswith("@") or single_ch.startswith("-100")) else "@" + single_ch
+        if not any(s.get("channel_id") == ch_id or s.get("channel_username") == ch_id.lstrip("@") for s in sponsors):
+            try:
+                member = await bot.get_chat_member(chat_id=ch_id, user_id=user_id)
+                if member.status not in ("member", "administrator", "creator"):
+                    unsub.append({
+                        "title": single_ch,
+                        "url": f"https://t.me/{single_ch.lstrip('@')}",
+                        "channel_id": ch_id,
+                    })
+            except Exception as e:
+                logger.warning(f"Kanal {ch_id} tekshirishda ogohlantirish: {e}")
+
+    if not unsub:
+        return True, []
+    return False, unsub
 
 
-def channel_sub_keyboard(channel: str) -> InlineKeyboardMarkup:
-    clean_channel = channel.lstrip("@")
-    url = f"https://t.me/{clean_channel}"
-    return InlineKeyboardMarkup(
-        inline_keyboard=[
-            [InlineKeyboardButton(text="📢 Kanalga a'zo bo'lish", url=url)],
-            [InlineKeyboardButton(text="✅ A'zo bo'ldim (Tekshirish)", callback_data="btn_check_sub")],
-        ]
-    )
+def channel_sub_keyboard(channel_data: Any) -> InlineKeyboardMarkup:
+    """Bir yoki bir nechta homiy kanal uchun a'zo bo'lish tugmalarini yasaydi."""
+    buttons = []
+    if isinstance(channel_data, str):
+        clean = channel_data.lstrip("@")
+        buttons.append([InlineKeyboardButton(text="📢 Kanalga a'zo bo'lish", url=f"https://t.me/{clean}")])
+    elif isinstance(channel_data, list):
+        for ch in channel_data:
+            if isinstance(ch, dict):
+                title = ch.get("title", "Kanal")
+                url = ch.get("url") or f"https://t.me/{ch.get('channel_id', '').lstrip('@')}"
+                buttons.append([InlineKeyboardButton(text=f"📢 {title} ga a'zo bo'lish", url=url)])
+            elif isinstance(ch, str):
+                clean = ch.lstrip("@")
+                buttons.append([InlineKeyboardButton(text=f"📢 @{clean} ga a'zo bo'lish", url=f"https://t.me/{clean}")])
+
+    buttons.append([InlineKeyboardButton(text="✅ A'zo bo'ldim (Tekshirish)", callback_data="btn_check_sub")])
+    return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
 def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
@@ -323,7 +358,7 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Jonli Statistika", callback_data="adm_stats"),
-                InlineKeyboardButton(text="📢 Majburiy Kanal", callback_data="adm_channel"),
+                InlineKeyboardButton(text="📢 Homiy Kanallar", callback_data="adm_sponsors"),
             ],
             [
                 InlineKeyboardButton(text="👥 Adminlar Boshqaruvi", callback_data="adm_admins"),
@@ -339,6 +374,7 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="📢 Qayta Jalb Qilish (Retargeting)", callback_data="adm_retargeting"),
+                InlineKeyboardButton(text="📢 Majburiy Kanal", callback_data="adm_channel"),
             ],
             [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
         ]
@@ -382,14 +418,13 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
         except Exception:
             pass
 
-    is_subbed, channel = await check_channel_subscription(bot, user_id)
+    is_subbed, unsub_channels = await check_channel_subscription(bot, user_id)
     if not is_subbed:
         await message.answer(
             f"Assalomu alaykum, <b>{first_name}</b>!\n\n"
-            f"Botimizdan to'liq foydalanish uchun rasmiy kanalimizga a'zo bo'ling:\n"
-            f"👉 <b>{channel}</b>",
+            f"Botimizdan to'liq foydalanish uchun quyidagi homiy kanal(lar)imizga a'zo bo'ling:",
             parse_mode="HTML",
-            reply_markup=channel_sub_keyboard(channel),
+            reply_markup=channel_sub_keyboard(unsub_channels),
         )
         return
 
@@ -410,7 +445,7 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
 @router.callback_query(F.data == "btn_check_sub")
 async def cb_check_subscription(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
-    is_subbed, channel = await check_channel_subscription(bot, user_id)
+    is_subbed, unsub_channels = await check_channel_subscription(bot, user_id)
     if is_subbed:
         await safe_callback_answer(callback, "A'zolik tasdiqlandi! Rahmat.")
         user = database.get_user(user_id)
@@ -422,7 +457,12 @@ async def cb_check_subscription(callback: CallbackQuery, bot: Bot):
         )
         await safe_edit_or_answer(callback.message, text, reply_markup=main_menu_keyboard(user_id))
     else:
-        await safe_callback_answer(callback, "Siz hali kanalga a'zo bo'lmadingiz!", show_alert=True)
+        await safe_callback_answer(callback, "Siz hali barcha homiy kanallarga a'zo bo'lmadingiz!", show_alert=True)
+        await safe_edit_or_answer(
+            callback.message,
+            "⚠️ Botdan to'liq foydalanish uchun quyidagi homiy kanal(lar)ga a'zo bo'ling:",
+            reply_markup=channel_sub_keyboard(unsub_channels),
+        )
 
 
 @router.callback_query(F.data == "btn_cancel")
@@ -501,6 +541,96 @@ async def process_user_promo(message: Message, state: FSMContext):
     await message.answer(msg, reply_markup=main_menu_keyboard(message.from_user.id))
 
 
+# ------------------ GURUH CHATLARI REJIMI (/slayd va @mention) ------------------
+@router.message(Command("slayd", "slide"))
+async def handle_group_slide_command(message: Message, command: CommandObject, bot: Bot):
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name or "Foydalanuvchi"
+    username = message.from_user.username or ""
+    database.get_or_create_user(user_id, first_name, username)
+
+    topic = (command.args or "").strip() if command else ""
+    if not topic:
+        await message.reply(
+            "👥 <b>Guruhda tezkor slayd yaratish:</b>\n\n"
+            "Foydalanish: <code>/slayd [mavzu]</code>\n"
+            "Masalan: <code>/slayd Sun'iy intellekt va robototexnika kelajagi</code>\n\n"
+            "✨ <i>Bot bir necha soniyada professional PowerPoint (.pptx) va PDF taqdimotni tayyorlab, guruhga yuboradi!</i>",
+            parse_mode="HTML",
+        )
+        return
+
+    if not database.has_slides_left(user_id, is_admin(user_id)):
+        bot_info = await bot.get_me()
+        await message.reply(
+            f"⚠️ Kechirasiz, <b>{first_name}</b>, sizning bepul slaydlaringiz tugagan.\n"
+            f"Balansni to'ldirish uchun shaxsiy xabarda @{bot_info.username} ga o'ting.",
+            parse_mode="HTML",
+        )
+        return
+
+    status_msg = await message.reply(
+        f"⏳ <b>Guruh uchun taqdimot tayyorlanmoqda...</b>\n\n"
+        f"📌 <b>Mavzu:</b> {topic}\n"
+        f"🚀 <i>Professional dizayn, AI rasmlar va diagrammalar chizilmoqda...</i>",
+        parse_mode="HTML",
+    )
+
+    try:
+        await execute_presentation_generation(
+            target_msg=message,
+            user_id=user_id,
+            topic=topic,
+            slide_count=5,
+            theme_key="dark_tech",
+            language="uz",
+            with_speech=False,
+            status_msg=status_msg,
+        )
+    except Exception as e:
+        logger.error(f"Guruhda slayd yaratish xatosi: {e}")
+        await message.reply("❌ Taqdimot tayyorlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.")
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}) & F.text.regexp(r"^@?[Ss]laydchi[Aa]kabot\s+(.+)"))
+async def handle_group_mention_slide(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name or "Foydalanuvchi"
+    username = message.from_user.username or ""
+    database.get_or_create_user(user_id, first_name, username)
+
+    text = message.text or ""
+    topic = re.sub(r"^@?[Ss]laydchi[Aa]kabot\s+", "", text).strip()
+    if not topic:
+        return
+
+    if not database.has_slides_left(user_id, is_admin(user_id)):
+        bot_info = await bot.get_me()
+        await message.reply(
+            f"⚠️ <b>{first_name}</b>, bepul slaydlaringiz tugagan. @{bot_info.username} da hisobingizni to'ldirishingiz mumkin.",
+            parse_mode="HTML",
+        )
+        return
+
+    status_msg = await message.reply(
+        f"⏳ <b>Guruh uchun taqdimot tayyorlanmoqda...</b>\n📌 <b>Mavzu:</b> {topic}",
+        parse_mode="HTML",
+    )
+    try:
+        await execute_presentation_generation(
+            target_msg=message,
+            user_id=user_id,
+            topic=topic,
+            slide_count=5,
+            theme_key="dark_tech",
+            language="uz",
+            with_speech=False,
+            status_msg=status_msg,
+        )
+    except Exception as e:
+        logger.error(f"Guruhda slayd yaratish xatosi: {e}")
+
+
 # ------------------ TARIFLAR VA TO'LOV (STARS VA KARTA) ------------------
 @router.callback_query(F.data == "btn_tariffs")
 async def cb_tariffs(callback: CallbackQuery):
@@ -509,21 +639,23 @@ async def cb_tariffs(callback: CallbackQuery):
 
     text = (
         "💎 <b>Qo'shimcha Slaydlar Uchun Tariflar</b>\n\n"
-        "⭐️ <b>Telegram Stars orqali tezkor to'lov (1 soniyada avtomatik faollashadi):</b>\n"
-        "• <b>10 ta slayd paketi</b> — ⭐ 50 Stars\n"
-        "• <b>30 ta slayd paketi</b> — ⭐ 120 Stars\n"
-        "• <b>Cheksiz VIP (1 oy)</b> — ⭐ 250 Stars\n\n"
-        "━━━━━━━━━━━━━━\n"
-        "💳 <b>Karta orqali to'lov (Click & Payme):</b>\n"
+        "💳 <b>Avtomatlashtirilgan Click & Payme to'lovi (24/7):</b>\n"
         "• 10 ta slayd — <b>9 000 so'm</b>\n"
-        "• 30 ta slayd — <b>19 000 so'm</b>\n"
-        "• Cheksiz VIP — <b>39 000 so'm</b>\n\n"
-        f"{payment_info}\n\n"
-        "<i>To'lov qilgach, chek yoki skrinshotni adminga yuboring, hisobingiz 1 daqiqa ichida to'ldiriladi!</i>"
+        "• 30 ta slayd — <b>19 000 so'm</b> (Tavsiya etiladi)\n"
+        "• Cheksiz VIP (1 oy) — <b>39 000 so'm</b>\n\n"
+        "⭐️ <b>Telegram Stars orqali tezkor to'lov:</b>\n"
+        "• 10 ta slayd — ⭐ 50 Stars\n"
+        "• 30 ta slayd — ⭐ 120 Stars\n"
+        "• Cheksiz VIP — ⭐ 250 Stars\n\n"
+        f"{payment_info}"
     )
 
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
+            [
+                InlineKeyboardButton(text="💳 Click orqali to'lash", callback_data="buy_click_menu"),
+                InlineKeyboardButton(text="💳 Payme orqali to'lash", callback_data="buy_payme_menu"),
+            ],
             [
                 InlineKeyboardButton(text="⭐ 10 Slayd (50 Stars)", callback_data="buy_stars_10"),
                 InlineKeyboardButton(text="⭐ 30 Slayd (120 Stars)", callback_data="buy_stars_30"),
@@ -539,6 +671,136 @@ async def cb_tariffs(callback: CallbackQuery):
         ]
     )
     await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "buy_click_menu")
+async def cb_buy_click_menu(callback: CallbackQuery):
+    await safe_callback_answer(callback)
+    text = (
+        "💳 <b>Click orqali to'lov</b>\n\n"
+        "O'zingizga mos slaydlar paketini tanlang:\n"
+        "• <b>10 ta slayd</b> — 9 000 so'm\n"
+        "• <b>30 ta slayd</b> — 19 000 so'm (Tavsiya etiladi)\n"
+        "• <b>Cheksiz VIP (1 oy)</b> — 39 000 so'm\n\n"
+        "<i>To'lov amalga oshirilgach, hisobingizga avtomatik tarzda slaydlar biriktiriladi.</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="10 Slayd (9 000 so'm)", callback_data="pay_order_click_10_9000"),
+                InlineKeyboardButton(text="30 Slayd (19 000 so'm)", callback_data="pay_order_click_30_19000"),
+            ],
+            [
+                InlineKeyboardButton(text="👑 Cheksiz VIP (39 000 so'm)", callback_data="pay_order_click_vip_39000"),
+            ],
+            [InlineKeyboardButton(text="🔙 Tariflarga qaytish", callback_data="btn_tariffs")],
+        ]
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "buy_payme_menu")
+async def cb_buy_payme_menu(callback: CallbackQuery):
+    await safe_callback_answer(callback)
+    text = (
+        "💳 <b>Payme orqali to'lov</b>\n\n"
+        "O'zingizga mos slaydlar paketini tanlang:\n"
+        "• <b>10 ta slayd</b> — 9 000 so'm\n"
+        "• <b>30 ta slayd</b> — 19 000 so'm (Tavsiya etiladi)\n"
+        "• <b>Cheksiz VIP (1 oy)</b> — 39 000 so'm\n\n"
+        "<i>To'lov amalga oshirilgach, hisobingizga avtomatik tarzda slaydlar biriktiriladi.</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="10 Slayd (9 000 so'm)", callback_data="pay_order_payme_10_9000"),
+                InlineKeyboardButton(text="30 Slayd (19 000 so'm)", callback_data="pay_order_payme_30_19000"),
+            ],
+            [
+                InlineKeyboardButton(text="👑 Cheksiz VIP (39 000 so'm)", callback_data="pay_order_payme_vip_39000"),
+            ],
+            [InlineKeyboardButton(text="🔙 Tariflarga qaytish", callback_data="btn_tariffs")],
+        ]
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("pay_order_"))
+async def cb_process_pay_order(callback: CallbackQuery):
+    await safe_callback_answer(callback)
+    user_id = callback.from_user.id
+    parts = callback.data.split("_")
+    provider = parts[2]
+    pack_type = parts[3]
+    amount = int(parts[4])
+
+    slides_count = 10 if pack_type == "10" else (30 if pack_type == "30" else 9999)
+    pack_name = "10 ta Slayd" if pack_type == "10" else ("30 ta Slayd" if pack_type == "30" else "👑 Cheksiz VIP (1 oy)")
+
+    order_id = database.create_payment_order(
+        user_id=user_id,
+        provider=provider,
+        amount=amount,
+        slides_count=slides_count,
+    )
+
+    pay_url = (
+        f"https://my.click.uz/services/pay?service_id=0&merchant_id=0&amount={amount}&transaction_param={order_id}"
+        if provider == "click"
+        else f"https://checkout.paycom.uz/{order_id}"
+    )
+
+    card_info = database.get_formatted_payment_info()
+    text = (
+        f"💳 <b>{provider.upper()} TO'LOV BUYURTMASI #{order_id}</b>\n\n"
+        f"📦 <b>Paket:</b> {pack_name}\n"
+        f"💰 <b>To'lov summasi:</b> {amount:,} so'm\n"
+        f"🆔 <b>Buyurtma ID:</b> <code>{order_id}</code>\n\n"
+        f"To'lovni to'g'ridan-to'g'ri karta orqali amalga oshirishingiz ham mumkin:\n"
+        f"{card_info}\n\n"
+        f"<i>To'lov qilgach, quyidagi «To'lovni tekshirish» tugmasini bosing yoki adminga buyurtma ID ({order_id}) bilan chekni yuboring.</i>"
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text=f"🔗 {provider.upper()} orqali to'lash", url=pay_url)],
+            [InlineKeyboardButton(text="🔄 To'lovni tekshirish", callback_data=f"check_pay_{order_id}")],
+            [InlineKeyboardButton(text="🔙 Tariflarga qaytish", callback_data="btn_tariffs")],
+        ]
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("check_pay_"))
+async def cb_check_payment_status(callback: CallbackQuery):
+    order_id = int(callback.data.replace("check_pay_", ""))
+    conn = database.get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM payments WHERE id = ?", (order_id,))
+    order = cursor.fetchone()
+    conn.close()
+
+    if not order:
+        await safe_callback_answer(callback, "Buyurtma topilmadi!", show_alert=True)
+        return
+
+    if order["status"] == "paid":
+        await safe_callback_answer(callback, "✅ To'lov tasdiqlangan va balansingizga qo'shilgan!", show_alert=True)
+        user = database.get_user(callback.from_user.id)
+        bal = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left']} ta"
+        await safe_edit_or_answer(
+            callback.message,
+            f"🎉 <b>To'lovingiz muvaffaqiyatli qabul qilingan!</b>\n\n"
+            f"📊 <b>Joriy balansingiz:</b> {bal}\n\n"
+            f"Taqdimot yaratishni boshlash uchun quyidagi tugmani bosing:",
+            reply_markup=main_menu_keyboard(callback.from_user.id),
+        )
+    else:
+        await safe_callback_answer(
+            callback,
+            f"⏳ Buyurtma #{order_id} to'lovi hali kutilmoqda. Agar to'lov qilgan bo'lsangiz, chekni adminga yuboring.",
+            show_alert=True,
+        )
 
 
 @router.callback_query(F.data == "buy_stars_10")
@@ -628,12 +890,12 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await safe_callback_answer(callback)
     user_id = callback.from_user.id
 
-    is_subbed, channel = await check_channel_subscription(bot, user_id)
+    is_subbed, unsub_channels = await check_channel_subscription(bot, user_id)
     if not is_subbed:
         await safe_edit_or_answer(
             callback.message,
-            f"⚠️ Slayd yaratish uchun avval rasmiy kanalimizga a'zo bo'ling:\n👉 <b>{channel}</b>",
-            reply_markup=channel_sub_keyboard(channel),
+            "⚠️ Slayd yaratish uchun quyidagi homiy kanal(lar)ga a'zo bo'ling:",
+            reply_markup=channel_sub_keyboard(unsub_channels),
         )
         return
 
@@ -1160,6 +1422,26 @@ async def execute_presentation_generation(
             caption=f"📁 <b>{topic}</b> — PowerPoint (.pptx) taqdimot fayli",
             parse_mode="HTML",
         )
+
+        # Guruh chatlari uchun darhol 16:9 PDF taqdimotini ham yetkazib beramiz
+        chat_type = getattr(getattr(target_msg, "chat", None), "type", "")
+        if chat_type in ("group", "supergroup"):
+            try:
+                pdf_file_path = create_presentation_pdf(
+                    content=presentation_content,
+                    theme_key=theme_key,
+                    author_name=author_name,
+                    logo_path=logo_path,
+                )
+                if pdf_file_path and os.path.exists(pdf_file_path):
+                    pdf_doc = FSInputFile(pdf_file_path, filename=f"{os.path.splitext(os.path.basename(pptx_file_path))[0]}.pdf")
+                    await target_msg.answer_document(
+                        document=pdf_doc,
+                        caption=f"📄 <b>{topic}</b> — PDF formatidagi taqdimot\n✨ <i>@SlaydchiAkabot orqali guruh uchun tayyorlandi!</i>",
+                        parse_mode="HTML",
+                    )
+            except Exception as pe:
+                logger.warning(f"Guruhga PDF yuborishda ogohlantirish: {pe}")
 
         # 3-qadam: Spiker nutqi faylini yuborish (faqat agar tanlangan bo'lsa, alohida faylda)
         if with_speech and speech_file_path and os.path.exists(speech_file_path):
@@ -2287,6 +2569,116 @@ async def process_set_channel(message: Message, state: FSMContext):
     await message.answer(f"✅ Majburiy obuna kanali <b>{text}</b> ga o'rnatildi!", parse_mode="HTML", reply_markup=admin_menu_keyboard())
 
 
+# 5.1 Homiy Kanallar Boshqaruvi
+@router.callback_query(F.data == "adm_sponsors")
+async def cb_admin_sponsors(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback)
+    channels = database.get_all_sponsor_channels()
+    text = "📢 <b>Homiy Kanallar Boshqaruvi</b>\n\n"
+    if not channels:
+        text += "Hozircha hech qanday homiy kanal qo'shilmagan.\n"
+    else:
+        text += "Faol homiy kanallar ro'yxati:\n\n"
+        for idx, ch in enumerate(channels, 1):
+            status = "🟢" if ch.get("is_active") else "🔴"
+            uname = ch.get("channel_username", "").lstrip("@")
+            text += f"{idx}. {status} <b>{ch['channel_title']}</b> (@{uname})\n"
+
+    kb_buttons = [
+        [InlineKeyboardButton(text="➕ Yangi Kanal Qo'shish", callback_data="adm_add_sponsor")],
+    ]
+    for ch in channels:
+        ch_id = str(ch.get("channel_id", ""))
+        title = ch.get("channel_title", "Kanal")[:18]
+        kb_buttons.append([
+            InlineKeyboardButton(
+                text=f"🗑 O'chirish: {title}",
+                callback_data=f"adm_del_sp_{ch_id}",
+            )
+        ])
+    kb_buttons.append([InlineKeyboardButton(text="🔙 Admin Menyu", callback_data="btn_admin")])
+    await safe_edit_or_answer(callback.message, text, reply_markup=InlineKeyboardMarkup(inline_keyboard=kb_buttons))
+
+
+@router.callback_query(F.data == "adm_add_sponsor")
+async def cb_admin_add_sponsor(callback: CallbackQuery, state: FSMContext):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback)
+    await state.set_state(AdminState.waiting_for_add_sponsor)
+    text = (
+        "➕ <b>Yangi Homiy Kanal Qo'shish</b>\n\n"
+        "Kanal username yoki havolasini yuboring (masalan: <code>@mening_kanalim</code> yoki <code>https://t.me/mening_kanalim</code>).\n\n"
+        "<i>Eslatma: Bot ushbu kanalda administrator bo'lishi shart (a'zolikni tekshirish uchun).</i>\n\n"
+        "Bekor qilish uchun /cancel deb yozing."
+    )
+    await callback.message.edit_text(text, parse_mode="HTML")
+
+
+@router.message(AdminState.waiting_for_add_sponsor)
+async def process_add_sponsor(message: Message, state: FSMContext, bot: Bot):
+    if not is_admin(message.from_user.id):
+        return
+    text = (message.text or "").strip()
+    if text.startswith("/cancel"):
+        await state.clear()
+        await message.answer("Bekor qilindi.", reply_markup=admin_menu_keyboard())
+        return
+
+    clean_uname = text.replace("https://t.me/", "").replace("http://t.me/", "").strip().lstrip("@")
+    if not clean_uname:
+        await message.answer("❌ Noto'g'ri kanal username. Qaytadan yuboring yoki /cancel bosing.")
+        return
+
+    try:
+        chat = await bot.get_chat(f"@{clean_uname}")
+        ch_id = str(chat.id)
+        ch_title = chat.title or clean_uname
+        ch_url = f"https://t.me/{clean_uname}"
+        database.add_sponsor_channel(
+            channel_id=ch_id,
+            channel_title=ch_title,
+            channel_username=clean_uname,
+            channel_url=ch_url,
+        )
+        await state.clear()
+        await message.answer(
+            f"✅ <b>Kanal muvaffaqiyatli qo'shildi!</b>\n\n"
+            f"📌 <b>Nomi:</b> {ch_title}\n"
+            f"🆔 <b>ID:</b> <code>{ch_id}</code>\n"
+            f"🔗 <b>Havola:</b> {ch_url}",
+            parse_mode="HTML",
+            reply_markup=admin_menu_keyboard(),
+        )
+    except Exception as e:
+        logger.warning(f"Kanal ma'lumotlarini olishda xatolik: {e}")
+        database.add_sponsor_channel(
+            channel_id=f"@{clean_uname}",
+            channel_title=clean_uname,
+            channel_username=clean_uname,
+            channel_url=f"https://t.me/{clean_uname}",
+        )
+        await state.clear()
+        await message.answer(
+            f"⚠️ Kanal qo'shildi, ammo bot kanalda administrator bo'lmasa obunani to'liq tekshira olmasligi mumkin.\n"
+            f"Iltimos, botni @{clean_uname} kanaliga admin qilib qo'shing!",
+            parse_mode="HTML",
+            reply_markup=admin_menu_keyboard(),
+        )
+
+
+@router.callback_query(F.data.startswith("adm_del_sp_"))
+async def cb_admin_del_sponsor(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    channel_id = callback.data.replace("adm_del_sp_", "")
+    database.delete_sponsor_channel(channel_id)
+    await safe_callback_answer(callback, "Kanal muvaffaqiyatli o'chirildi!")
+    await cb_admin_sponsors(callback)
+
+
 # 6. Standart limit va referal bonusi
 @router.callback_query(F.data == "adm_limits")
 async def cb_admin_limits(callback: CallbackQuery, state: FSMContext):
@@ -2720,6 +3112,126 @@ async def handle_create_slide_webapp(request):
         return web.json_response({"ok": False, "error": str(e)}, status=500)
 
 
+async def handle_click_webhook(request: web.Request) -> web.Response:
+    try:
+        data = await request.post()
+        if not data:
+            try:
+                data = await request.json()
+            except Exception:
+                data = {}
+
+        click_trans_id = data.get("click_trans_id")
+        merchant_trans_id = data.get("merchant_trans_id")
+        action = data.get("action")
+
+        if str(action) == "0":
+            return web.json_response({
+                "click_trans_id": click_trans_id,
+                "merchant_trans_id": merchant_trans_id,
+                "merchant_prepare_id": merchant_trans_id,
+                "error": 0,
+                "error_note": "Success"
+            })
+        elif str(action) == "1":
+            order_id = int(merchant_trans_id)
+            ok, user_id, slides = database.complete_payment_order(order_id, external_id=str(click_trans_id))
+            if ok and bot_instance and user_id:
+                try:
+                    await bot_instance.send_message(
+                        chat_id=user_id,
+                        text=(
+                            f"🎉 <b>Click orqali to'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+                            f"🎁 Hisobingizga <b>+{slides} ta slayd</b> qo'shildi. Rahmat!\n"
+                            f"Yangi taqdimot yaratish uchun /start bosing."
+                        ),
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.warning(f"Foydalanuvchiga to'lov xabarini yuborishda xatolik: {e}")
+
+            return web.json_response({
+                "click_trans_id": click_trans_id,
+                "merchant_trans_id": merchant_trans_id,
+                "merchant_confirm_id": merchant_trans_id,
+                "error": 0,
+                "error_note": "Success"
+            })
+
+        return web.json_response({"error": -8, "error_note": "Unknown action"})
+    except Exception as e:
+        logger.error(f"Click webhook xatosi: {e}")
+        return web.json_response({"error": -1, "error_note": str(e)})
+
+
+async def handle_payme_webhook(request: web.Request) -> web.Response:
+    try:
+        data = await request.json()
+        method = data.get("method")
+        params = data.get("params", {})
+        req_id = data.get("id")
+
+        if method == "CheckPerformTransaction":
+            return web.json_response({"result": {"allow": True}, "id": req_id})
+        elif method == "CreateTransaction":
+            trans_id = params.get("id")
+            time_now = int(asyncio.get_event_loop().time() * 1000)
+            return web.json_response({
+                "result": {
+                    "create_time": time_now,
+                    "transaction": str(trans_id),
+                    "state": 1
+                },
+                "id": req_id
+            })
+        elif method == "PerformTransaction":
+            trans_id = params.get("id")
+            order_id = params.get("account", {}).get("order_id", 1)
+            ok, user_id, slides = database.complete_payment_order(int(order_id), external_id=str(trans_id))
+            if ok and bot_instance and user_id:
+                try:
+                    await bot_instance.send_message(
+                        chat_id=user_id,
+                        text=(
+                            f"🎉 <b>Payme orqali to'lovingiz muvaffaqiyatli qabul qilindi!</b>\n\n"
+                            f"🎁 Hisobingizga <b>+{slides} ta slayd</b> qo'shildi. Rahmat!\n"
+                            f"Yangi taqdimot yaratish uchun /start bosing."
+                        ),
+                        parse_mode="HTML"
+                    )
+                except Exception as e:
+                    logger.warning(f"Foydalanuvchiga to'lov xabarini yuborishda xatolik: {e}")
+
+            time_now = int(asyncio.get_event_loop().time() * 1000)
+            return web.json_response({
+                "result": {
+                    "transaction": str(trans_id),
+                    "perform_time": time_now,
+                    "state": 2
+                },
+                "id": req_id
+            })
+        elif method == "CheckTransaction":
+            trans_id = params.get("id")
+            time_now = int(asyncio.get_event_loop().time() * 1000)
+            return web.json_response({
+                "result": {
+                    "create_time": time_now,
+                    "perform_time": time_now,
+                    "cancel_time": 0,
+                    "transaction": str(trans_id),
+                    "state": 2,
+                    "reason": None
+                },
+                "id": req_id
+            })
+
+        return web.json_response({"result": {"state": 1}, "id": req_id})
+    except Exception as e:
+        logger.error(f"Payme webhook xatosi: {e}")
+        return web.json_response({"error": {"code": -32400, "message": str(e)}, "id": None})
+
+
 async def start_web_server():
     try:
         port = int(os.getenv("PORT", 8080))
@@ -2728,6 +3240,8 @@ async def start_web_server():
         app.router.add_get("/health", handle_ping)
         app.router.add_get("/webapp", handle_webapp)
         app.router.add_post("/api/create_slide_webapp", handle_create_slide_webapp)
+        app.router.add_post("/api/payments/click", handle_click_webhook)
+        app.router.add_post("/api/payments/payme", handle_payme_webhook)
         runner = web.AppRunner(app)
         await runner.setup()
         site = web.TCPSite(runner, "0.0.0.0", port)

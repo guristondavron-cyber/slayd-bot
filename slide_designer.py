@@ -1,3 +1,4 @@
+from image_service import fetch_ai_image_sync
 import os
 from typing import Optional
 from pptx import Presentation
@@ -185,6 +186,12 @@ def create_presentation_file(
             _render_checklist_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         elif slide_data.layout == "conclusion":
             _render_conclusion_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
+        elif slide_data.image_keyword and (idx % 2 == 1 or idx == 1):
+            ai_img = fetch_ai_image_sync(slide_data.image_keyword)
+            if ai_img and os.path.exists(ai_img):
+                _render_split_image_slide(slide, slide_data, theme, idx + 1, total_slides, ai_img, author_name=author_name, logo_path=logo_path)
+            else:
+                _render_cards_grid_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
         else:
             _render_cards_grid_slide(slide, slide_data, theme, idx + 1, total_slides, author_name=author_name, logo_path=logo_path)
 
@@ -467,6 +474,81 @@ def _render_title_slide(slide, slide_data: SlideContent, theme: ColorTheme, widt
         p_hl.font.name = FONT_FAMILY_BODY
         p_hl.font.color.rgb = RGBColor(*theme.text_body)
         p_hl.alignment = PP_ALIGN.LEFT
+
+
+
+def _render_split_image_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, image_path: str, author_name: Optional[str] = None, logo_path: Optional[str] = None):
+    """60/40 Split layout: chapda aniq ma'lumotlar va kartalar, o'ngda fotorealistik AI rasm."""
+    _render_header(slide, slide_data, theme, current_num, total_slides, author_name=author_name, logo_path=logo_path)
+
+    items = slide_data.cards or []
+    if not items:
+        items = [
+            CardItem(title="Asosiy tushuncha", description=slide_data.title, badge="01"),
+            CardItem(title="Amaliy ahamiyat", description=slide_data.subtitle or "Muhim strategik omil", badge="02")
+        ]
+
+    count = min(len(items), 3)
+    left_w = Inches(6.8)
+    left_start = Inches(0.9)
+    content_top = Inches(2.4)
+    total_h = Inches(4.3)
+    gap = Inches(0.25)
+    card_h = (total_h - gap * (count - 1)) / count
+
+    for i in range(count):
+        item = items[i]
+        c_top = content_top + i * (card_h + gap)
+
+        card = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, left_start, c_top, left_w, card_h)
+        card.fill.solid()
+        card.fill.fore_color.rgb = RGBColor(*theme.card_bg)
+        card.line.color.rgb = RGBColor(*theme.card_border)
+        card.line.width = Pt(1.5)
+
+        tbox = slide.shapes.add_textbox(left_start + Inches(0.25), c_top + Inches(0.12), left_w - Inches(0.5), card_h - Inches(0.24))
+        tf = tbox.text_frame
+        tf.word_wrap = True
+        tf.margin_left = tf.margin_right = tf.margin_top = tf.margin_bottom = 0
+
+        p_b = tf.paragraphs[0]
+        p_b.text = (item.badge or f"0{i+1}").upper()
+        p_b.font.size = Pt(10)
+        p_b.font.bold = True
+        p_b.font.name = FONT_FAMILY_TITLE
+        p_b.font.color.rgb = RGBColor(*theme.secondary)
+
+        p_t = tf.add_paragraph()
+        p_t.text = item.title
+        p_t.font.size = Pt(15)
+        p_t.font.bold = True
+        p_t.font.name = FONT_FAMILY_TITLE
+        p_t.font.color.rgb = RGBColor(*theme.text_title)
+        p_t.space_before = Pt(3)
+        p_t.space_after = Pt(3)
+
+        p_d = tf.add_paragraph()
+        p_d.text = item.description
+        p_d.font.size = Pt(12)
+        p_d.font.name = FONT_FAMILY_BODY
+        p_d.font.color.rgb = RGBColor(*theme.text_body)
+
+    # O'ng tomonda AI rasm
+    right_left = Inches(8.0)
+    img_w = Inches(4.4)
+    img_h = Inches(4.3)
+
+    img_frame = slide.shapes.add_shape(MSO_SHAPE.ROUNDED_RECTANGLE, right_left, content_top, img_w, img_h)
+    img_frame.fill.solid()
+    img_frame.fill.fore_color.rgb = RGBColor(*theme.card_bg)
+    img_frame.line.color.rgb = RGBColor(*theme.primary)
+    img_frame.line.width = Pt(2)
+
+    if image_path and os.path.exists(image_path):
+        try:
+            slide.shapes.add_picture(image_path, right_left + Inches(0.08), content_top + Inches(0.08), img_w - Inches(0.16), img_h - Inches(0.16))
+        except Exception as e:
+            logger.warning(f"PPTX rasm joylashda ogohlantirish: {e}")
 
 
 def _render_cards_grid_slide(slide, slide_data: SlideContent, theme: ColorTheme, current_num: int, total_slides: int, author_name: Optional[str] = None, logo_path: Optional[str] = None):
@@ -1415,15 +1497,41 @@ def render_slide_to_image(
     else:
         cards = slide_data.cards or [CardItem(title="Asosiy tushuncha", description=slide_data.title, badge="01")]
         cards = cards[:4]
-        num_cards = max(len(cards), 1)
-        card_w = int((W - 240 - 25 * (num_cards - 1)) / num_cards)
-        for i, card in enumerate(cards):
-            c_x = 120 + i * (card_w + 25)
-            draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
-            badge_t = card.badge or f"0{i+1}"
-            draw.text((c_x + 20, content_top + 25), badge_t.upper(), fill=theme.secondary)
-            draw.text((c_x + 20, content_top + 65), card.title[:24], fill=theme.text_title)
-            draw.text((c_x + 20, content_top + 115), card.description[:85], fill=theme.text_body)
+        
+        # Agar AI rasm mavjud bo'lsa 60/40 Split ko'rinishda chizish
+        ai_img_path = fetch_ai_image_sync(slide_data.image_keyword) if slide_data.image_keyword else None
+        if ai_img_path and os.path.exists(ai_img_path) and (current_num % 2 == 0 or current_num == 2):
+            left_w = 580
+            left_cards = cards[:3]
+            c_h = int((content_bottom - content_top - 15 * (len(left_cards) - 1)) / max(len(left_cards), 1))
+            for i, card in enumerate(left_cards):
+                c_y = content_top + i * (c_h + 15)
+                draw.rounded_rectangle([(120, c_y), (120 + left_w, c_y + c_h)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
+                badge_t = card.badge or f"0{i+1}"
+                draw.text((140, c_y + 15), badge_t.upper(), fill=theme.secondary)
+                draw.text((140, c_y + 45), card.title[:30], fill=theme.text_title)
+                draw.text((140, c_y + 80), card.description[:60], fill=theme.text_body)
+
+            # O'ng tomonda AI Rasm
+            img_x = 120 + left_w + 30
+            img_w = W - 120 - img_x
+            draw.rounded_rectangle([(img_x, content_top), (img_x + img_w, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.primary, width=2)
+            try:
+                loaded_img = Image.open(ai_img_path).convert("RGB")
+                loaded_img = loaded_img.resize((img_w - 20, content_bottom - content_top - 20), Image.Resampling.LANCZOS)
+                img.paste(loaded_img, (img_x + 10, content_top + 10))
+            except Exception as e:
+                logger.warning(f"Preview AI rasm chizishda ogohlantirish: {e}")
+        else:
+            num_cards = max(len(cards), 1)
+            card_w = int((W - 240 - 25 * (num_cards - 1)) / num_cards)
+            for i, card in enumerate(cards):
+                c_x = 120 + i * (card_w + 25)
+                draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
+                badge_t = card.badge or f"0{i+1}"
+                draw.text((c_x + 20, content_top + 25), badge_t.upper(), fill=theme.secondary)
+                draw.text((c_x + 20, content_top + 65), card.title[:24], fill=theme.text_title)
+                draw.text((c_x + 20, content_top + 115), card.description[:85], fill=theme.text_body)
 
     # Footer
     author_ft = f"  •  Muallif: {author_name}" if author_name else ""
@@ -1494,11 +1602,25 @@ def convert_pptx_to_pdf(
     theme_key: str = "dark_tech",
     author_name: Optional[str] = None,
 ) -> Optional[str]:
-    """PPTX faylini PDF ga o'giradi (LibreOffice headless yoki ReportLab orqali)."""
+    """PPTX faylini PDF ga o'giradi (Visual Pillow renderer yoki LibreOffice headless orqali)."""
     pdf_path = pptx_path.rsplit(".", 1)[0] + ".pdf"
     out_dir = os.path.dirname(pptx_path) or "."
 
-    # 1. LibreOffice headless sinab ko'rish (Render/Linux serverda)
+    # 1. Agar kontent mavjud bo'lsa, to'g'ridan-to'g'ri yuqori aniqlikdagi 16:9 visual PDF yaratish
+    if content and content.slides:
+        try:
+            res = create_presentation_pdf(
+                content=content,
+                theme_key=theme_key,
+                output_path=pdf_path,
+                author_name=author_name,
+            )
+            if res and os.path.exists(res) and os.path.getsize(res) > 1000:
+                return res
+        except Exception as e:
+            logger.warning(f"create_presentation_pdf xatoligi: {e}")
+
+    # 2. LibreOffice headless sinab ko'rish (Render/Linux serverda)
     try:
         res = subprocess.run(
             ["soffice", "--headless", "--convert-to", "pdf", pptx_path, "--outdir", out_dir],
@@ -1511,7 +1633,7 @@ def convert_pptx_to_pdf(
     except Exception:
         pass
 
-    # 2. ReportLab orqali yuqori sifatli PDF slayd hujjatini generatsiya qilish
+    # 3. ReportLab zaxira varianti
     if not content:
         return None
 
@@ -1606,3 +1728,53 @@ def convert_pptx_to_pdf(
     return None
 
 
+
+
+def create_presentation_pdf(
+    content: PresentationContent,
+    theme_key: str = "dark_tech",
+    output_path: Optional[str] = None,
+    author_name: Optional[str] = None,
+    logo_path: Optional[str] = None,
+) -> Optional[str]:
+    """
+    Barcha slaydlarni toza, yuqori aniqlikdagi (1280x720) va shriftlari surilmaydigan
+    mukammal PDF fayliga aylantiradi. 100% mustaqil, tezkor va barqaror.
+    """
+    if not content or not content.slides:
+        return None
+
+    theme = config.THEMES.get(theme_key, config.THEMES[config.DEFAULT_THEME])
+    total_slides = len(content.slides)
+
+    images = []
+    for idx, s_data in enumerate(content.slides):
+        img = render_slide_to_image(
+            slide_data=s_data,
+            theme=theme,
+            current_num=idx + 1,
+            total_slides=total_slides,
+            author_name=author_name,
+            logo_path=logo_path,
+        )
+        if img.mode != "RGB":
+            img = img.convert("RGB")
+        images.append(img)
+
+    if not output_path:
+        safe_topic = "".join(c for c in content.topic if c.isalnum() or c in (" ", "_", "-")).strip()
+        safe_topic = safe_topic[:30].replace(" ", "_") or "presentation"
+        os.makedirs("generated_slides", exist_ok=True)
+        output_path = os.path.join("generated_slides", f"{safe_topic}_{theme_key}.pdf")
+
+    if images:
+        images[0].save(
+            output_path,
+            save_all=True,
+            append_images=images[1:],
+            resolution=150.0,
+            quality=95
+        )
+        return output_path
+
+    return None
