@@ -1,6 +1,6 @@
 from image_service import fetch_ai_image_sync
 import os
-from typing import Optional
+from typing import Optional, List, Tuple, Any, Dict
 from pptx import Presentation
 from pptx.util import Inches, Pt
 from pptx.dml.color import RGBColor

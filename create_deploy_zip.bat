@@ -8,10 +8,15 @@ echo   SERVERGA YUKLASH UCHUN TAYYOR ZIP FAYL YASASH
 echo ==========================================================
 echo.
 
-powershell -NoProfile -Command "$zipPath = Join-Path ([Environment]::GetFolderPath('Desktop')) 'slide_bot_deploy.zip'; if (Test-Path $zipPath) { Remove-Item $zipPath -Force }; $files = Get-ChildItem -Path (Get-Location) -File | Where-Object { $_.Name -notin @('.env', 'bot.log') }; Compress-Archive -Path $files.FullName -DestinationPath $zipPath -Force; Write-Host '[OK] Ish stolidagi slide_bot_deploy.zip muvaffaqiyatli yangilandi!' -ForegroundColor Green"
+if exist ".venv\Scripts\python.exe" (
+    ".venv\Scripts\python.exe" pack_deploy.py
+) else (
+    python pack_deploy.py
+)
 
 echo.
 echo Tayyor ZIP fayl Ish stolingizda (Desktop) yaratildi:
 echo -> slide_bot_deploy.zip
+echo -> slayd_bot_fayllari (papka)
 echo.
 pause
