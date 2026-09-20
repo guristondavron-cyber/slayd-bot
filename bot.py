@@ -1270,6 +1270,13 @@ async def process_theme_selected(callback: CallbackQuery, state: FSMContext):
     await callback.message.answer(text, parse_mode="HTML", reply_markup=speech_selection_keyboard())
 
 
+# Bir vaqtda 50-60 ta so'rov kelganda bot qotib qolmasligi va server (RAM) to'lib ketmasligi uchun
+# barqaror asinxron navbat boshqaruvi (Concurrency Semaphore):
+MAX_CONCURRENT_SLIDE_JOBS = 3
+GENERATION_SEMAPHORE = asyncio.Semaphore(MAX_CONCURRENT_SLIDE_JOBS)
+_active_queue_waiters = 0
+
+
 async def execute_presentation_generation(
     target_msg: Message,
     user_id: int,
@@ -1285,6 +1292,7 @@ async def execute_presentation_generation(
     doc_text: str = "",
     status_msg: Optional[Message] = None,
 ):
+    global _active_queue_waiters
     theme_info = config.THEMES.get(theme_key, config.THEMES[config.DEFAULT_THEME])
     speech_desc = "va spiker nutqi" if with_speech else "(faqat slaydlar)"
     loading_text = (
@@ -1302,193 +1310,217 @@ async def execute_presentation_generation(
         except Exception:
             status_msg = await target_msg.answer(loading_text, parse_mode="HTML")
 
-    presentation_content: PresentationContent
-    try:
-        if is_doc and doc_text:
-            presentation_content = await generate_presentation_from_document(
-                doc_text=doc_text,
-                slide_count=slide_count,
-                language=language,
-                with_speech=with_speech,
-                mode=mode,
-            )
-        else:
-            presentation_content = await generate_presentation_with_gemini(
-                topic=topic,
-                slide_count=slide_count,
-                language=language,
-                with_speech=with_speech,
-                mode=mode,
-            )
-    except Exception as e:
-        logger.error(f"Generatsiyada xatolik: {e}")
-        presentation_content = generate_mock_presentation(
-            topic, slide_count=slide_count, with_speech=with_speech, mode=mode
-        )
-
-    try:
+    # Agar 3 tadan ko'p foydalanuvchi bir vaqtda so'rov yuborgan bo'lsa, navbat xabarini ko'rsatamiz
+    was_queued = False
+    if GENERATION_SEMAPHORE.locked():
+        was_queued = True
+        _active_queue_waiters += 1
+        queue_pos = _active_queue_waiters
         try:
             await status_msg.edit_text(
-                f"⏳ <b>Taqdimot tayyorlanmoqda...</b>\n\n"
-                f"📌 <b>Mavzu:</b> {topic}\n"
-                f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n\n"
-                f"✅ <i>Kontent tayyorlandi!</i>\n"
-                f"2️⃣ <i>16:9 formatda tematik rasmlar va diagrammalar chizilmoqda...</i>",
+                f"⏳ <b>Botda talab juda yuqori!</b>\n\n"
+                f"Sizning so'rovingiz xavfsiz navbatga qo'yildi (Navbat: <b>#{queue_pos}</b>).\n"
+                f"<i>Server barqaror ishlashi uchun navbatma-navbat tayyorlanmoqda. Iltimos, 5-15 soniya kuting...</i>",
                 parse_mode="HTML",
             )
         except Exception:
             pass
 
-        # 1. PowerPoint faylini yaratish (Slaydlar ostida eslatmasiz, toza format)
-        pptx_file_path = create_presentation_file(
-            content=presentation_content,
-            theme_key=theme_key,
-            author_name=author_name,
-            logo_path=logo_path,
-        )
+    try:
+        async with GENERATION_SEMAPHORE:
+            if was_queued:
+                _active_queue_waiters = max(0, _active_queue_waiters - 1)
+                try:
+                    await status_msg.edit_text(loading_text, parse_mode="HTML")
+                except Exception:
+                    pass
 
-        # 2. Slaydning vizual Telegram rasmini (Preview) yaratish
-        preview_img_path = generate_slide_preview_image(
-            content=presentation_content,
-            theme_key=theme_key,
-            author_name=author_name,
-            logo_path=logo_path,
-        )
-
-        # 3. Spiker nutqi faylini yaratish (agar so'ralgan bo'lsa)
-        speech_file_path = None
-        if with_speech:
-            speech_file_path = generate_speaker_speech_file(presentation_content)
-
-        database.use_slide(user_id, is_admin(user_id))
-
-        # Tarix va qayta ishlash uchun JSON
-        content_json_str = json.dumps([s.model_dump() for s in presentation_content.slides], ensure_ascii=False)
-        database.record_presentation(
-            user_id=user_id,
-            topic=topic,
-            theme=theme_key,
-            slide_count=len(presentation_content.slides),
-            content_json=content_json_str,
-            author_name=author_name,
-        )
-
-        database.save_last_presentation(
-            user_id=user_id,
-            topic=topic,
-            theme=theme_key,
-            content_json=content_json_str,
-            author_name=author_name,
-        )
-
-        user = database.get_user(user_id)
-        left = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left']} ta"
-
-        speech_status_line = (
-            "🎤 <b>Spiker nutqi:</b> Alohida Nutq_matni.txt faylida taqdim etildi.\n\n"
-            if with_speech
-            else "⚡️ <b>Spiker nutqi:</b> O'chirilgan (toza slaydlar).\n\n"
-        )
-        author_line = f"✍️ <b>Muallif:</b> {author_name}\n" if author_name else ""
-        logo_line = "🏢 <b>Logotip:</b> Slaydlarga biriktirildi\n" if logo_path else ""
-
-        caption = (
-            f"🎉 <b>Taqdimotingiz tayyor!</b>\n\n"
-            f"📌 <b>Mavzu:</b> {topic}\n"
-            f"📊 <b>Slaydlar:</b> {len(presentation_content.slides)} ta (Har biri individual dizaynda)\n"
-            f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n"
-            f"{author_line}"
-            f"{logo_line}"
-            f"💎 <b>Qolgan balansingiz:</b> {left}\n\n"
-            f"{speech_status_line}"
-            f"💡 <i>Slaydlarni istalgan PowerPoint dasturida ochib, bemalol tahrirlashingiz mumkin.</i>"
-        )
-
-        # 1-qadam: Slaydning preview rasmini yuborish
-        if preview_img_path and os.path.exists(preview_img_path):
-            preview_photo = FSInputFile(preview_img_path)
-            await target_msg.answer_photo(
-                photo=preview_photo,
-                caption=caption,
-                parse_mode="HTML",
-            )
-        else:
-            await target_msg.answer(caption, parse_mode="HTML")
-
-        # 2-qadam: PowerPoint faylni yuborish
-        pptx_doc = FSInputFile(pptx_file_path, filename=os.path.basename(pptx_file_path))
-        await target_msg.answer_document(
-            document=pptx_doc,
-            caption=f"📁 <b>{topic}</b> — PowerPoint (.pptx) taqdimot fayli",
-            parse_mode="HTML",
-        )
-
-        # Guruh chatlari uchun darhol 16:9 PDF taqdimotini ham yetkazib beramiz
-        chat_type = getattr(getattr(target_msg, "chat", None), "type", "")
-        if chat_type in ("group", "supergroup"):
-            try:
-                pdf_file_path = create_presentation_pdf(
-                    content=presentation_content,
-                    theme_key=theme_key,
-                    author_name=author_name,
-                    logo_path=logo_path,
+            presentation_content: PresentationContent
+            if is_doc and doc_text:
+                presentation_content = await generate_presentation_from_document(
+                    doc_text=doc_text,
+                    slide_count=slide_count,
+                    language=language,
+                    with_speech=with_speech,
+                    mode=mode,
                 )
-                if pdf_file_path and os.path.exists(pdf_file_path):
-                    pdf_doc = FSInputFile(pdf_file_path, filename=f"{os.path.splitext(os.path.basename(pptx_file_path))[0]}.pdf")
-                    await target_msg.answer_document(
-                        document=pdf_doc,
-                        caption=f"📄 <b>{topic}</b> — PDF formatidagi taqdimot\n✨ <i>@SlaydchiAkabot orqali guruh uchun tayyorlandi!</i>",
-                        parse_mode="HTML",
-                    )
-            except Exception as pe:
-                logger.warning(f"Guruhga PDF yuborishda ogohlantirish: {pe}")
+            else:
+                presentation_content = await generate_presentation_with_gemini(
+                    topic=topic,
+                    slide_count=slide_count,
+                    language=language,
+                    with_speech=with_speech,
+                    mode=mode,
+                )
 
-        # 3-qadam: Spiker nutqi faylini yuborish (faqat agar tanlangan bo'lsa, alohida faylda)
-        if with_speech and speech_file_path and os.path.exists(speech_file_path):
-            speech_doc = FSInputFile(speech_file_path, filename=os.path.basename(speech_file_path))
+            try:
+                await status_msg.edit_text(
+                    f"⏳ <b>Taqdimot tayyorlanmoqda...</b>\n\n"
+                    f"📌 <b>Mavzu:</b> {topic}\n"
+                    f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n\n"
+                    f"✅ <i>Kontent tayyorlandi!</i>\n"
+                    f"2️⃣ <i>16:9 formatda tematik rasmlar va diagrammalar chizilmoqda...</i>",
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
+
+            # 1. PowerPoint faylini yaratish (Fon oqimida, bot event loopini qotirmasdan)
+            pptx_file_path = await asyncio.to_thread(
+                create_presentation_file,
+                content=presentation_content,
+                theme_key=theme_key,
+                author_name=author_name,
+                logo_path=logo_path,
+            )
+
+            # 2. Slaydning vizual Telegram rasmini (Preview) yaratish (Fon oqimida)
+            preview_img_path = await asyncio.to_thread(
+                generate_slide_preview_image,
+                content=presentation_content,
+                theme_key=theme_key,
+                author_name=author_name,
+                logo_path=logo_path,
+            )
+
+            # 3. Spiker nutqi faylini yaratish (agar so'ralgan bo'lsa, fon oqimida)
+            speech_file_path = None
+            if with_speech:
+                speech_file_path = await asyncio.to_thread(
+                    generate_speaker_speech_file,
+                    presentation_content,
+                )
+
+            database.use_slide(user_id, is_admin(user_id))
+
+            # Tarix va qayta ishlash uchun JSON
+            content_json_str = json.dumps([s.model_dump() for s in presentation_content.slides], ensure_ascii=False)
+            database.record_presentation(
+                user_id=user_id,
+                topic=topic,
+                theme=theme_key,
+                slide_count=len(presentation_content.slides),
+                content_json=content_json_str,
+                author_name=author_name,
+            )
+
+            database.save_last_presentation(
+                user_id=user_id,
+                topic=topic,
+                theme=theme_key,
+                content_json=content_json_str,
+                author_name=author_name,
+            )
+
+            user = database.get_user(user_id)
+            left = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left']} ta"
+
+            speech_status_line = (
+                "🎤 <b>Spiker nutqi:</b> Alohida Nutq_matni.txt faylida taqdim etildi.\n\n"
+                if with_speech
+                else "⚡️ <b>Spiker nutqi:</b> O'chirilgan (toza slaydlar).\n\n"
+            )
+            author_line = f"✍️ <b>Muallif:</b> {author_name}\n" if author_name else ""
+            logo_line = "🏢 <b>Logotip:</b> Slaydlarga biriktirildi\n" if logo_path else ""
+
+            caption = (
+                f"🎉 <b>Taqdimotingiz tayyor!</b>\n\n"
+                f"📌 <b>Mavzu:</b> {topic}\n"
+                f"📊 <b>Slaydlar:</b> {len(presentation_content.slides)} ta (Har biri individual dizaynda)\n"
+                f"🎨 <b>Dizayn:</b> {theme_info.emoji} {theme_info.name}\n"
+                f"{author_line}"
+                f"{logo_line}"
+                f"💎 <b>Qolgan balansingiz:</b> {left}\n\n"
+                f"{speech_status_line}"
+                f"💡 <i>Slaydlarni istalgan PowerPoint dasturida ochib, bemalol tahrirlashingiz mumkin.</i>"
+            )
+
+            # 1-qadam: Slaydning preview rasmini yuborish
+            if preview_img_path and os.path.exists(preview_img_path):
+                preview_photo = FSInputFile(preview_img_path)
+                await target_msg.answer_photo(
+                    photo=preview_photo,
+                    caption=caption,
+                    parse_mode="HTML",
+                )
+            else:
+                await target_msg.answer(caption, parse_mode="HTML")
+
+            # 2-qadam: PowerPoint faylni yuborish
+            pptx_doc = FSInputFile(pptx_file_path, filename=os.path.basename(pptx_file_path))
             await target_msg.answer_document(
-                document=speech_doc,
-                caption="🎤 <b>Taqdimotda so'zlash uchun to'liq Spiker Nutqi (Nutq_matni.txt)</b>",
+                document=pptx_doc,
+                caption=f"📁 <b>{topic}</b> — PowerPoint (.pptx) taqdimot fayli",
                 parse_mode="HTML",
             )
 
-        try:
-            await status_msg.delete()
-        except Exception:
-            pass
+            # Guruh chatlari uchun darhol 16:9 PDF taqdimotini ham yetkazib beramiz
+            chat_type = getattr(getattr(target_msg, "chat", None), "type", "")
+            if chat_type in ("group", "supergroup"):
+                try:
+                    pdf_file_path = await asyncio.to_thread(
+                        create_presentation_pdf,
+                        content=presentation_content,
+                        theme_key=theme_key,
+                        author_name=author_name,
+                        logo_path=logo_path,
+                    )
+                    if pdf_file_path and os.path.exists(pdf_file_path):
+                        pdf_doc = FSInputFile(pdf_file_path, filename=f"{os.path.splitext(os.path.basename(pptx_file_path))[0]}.pdf")
+                        await target_msg.answer_document(
+                            document=pdf_doc,
+                            caption=f"📄 <b>{topic}</b> — PDF formatidagi taqdimot\n✨ <i>@SlaydchiAkabot orqali guruh uchun tayyorlandi!</i>",
+                            parse_mode="HTML",
+                        )
+                except Exception as pe:
+                    logger.warning(f"Guruhga PDF yuborishda ogohlantirish: {pe}")
 
-        # Navigatsiya va qo'shimcha amallar tugmalari
-        finish_kb = InlineKeyboardMarkup(
-            inline_keyboard=[
-                [
-                    InlineKeyboardButton(text="📄 PDF formatida", callback_data="btn_download_pdf"),
-                    InlineKeyboardButton(text="📸 Slaydlar (Rasm)", callback_data="btn_all_slides_images"),
-                ],
-                [
-                    InlineKeyboardButton(text="✏️ Slaydni tahrirlash", callback_data="btn_edit_slide"),
-                    InlineKeyboardButton(text="🌐 Boshqa tilga tarjima", callback_data="btn_translate"),
-                ],
-                [
-                    InlineKeyboardButton(text="🔄 Dizaynni o'zgartirish", callback_data="btn_reskin"),
-                    InlineKeyboardButton(text="🚀 Yangi Slayd", callback_data="btn_create_slide"),
-                ],
-                [
-                    InlineKeyboardButton(text="📁 Mening Taqdimotlarim", callback_data="btn_my_presentations"),
-                    InlineKeyboardButton(text="👤 Profil & Balans", callback_data="btn_profile"),
-                ],
-                [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
-            ]
-        )
-        await target_msg.answer(
-            "✨ <b>Taqdimot to'liq yetkazildi!</b>\n\n"
-            "💡 <b>Yangi imkoniyatlar:</b>\n"
-            "• 📸 <b>Slaydlar (Rasm):</b> Barcha slaydlarni sifatli rasm (PNG) to'plami sifatida olish.\n"
-            "• ✏️ <b>Slaydni tahrirlash:</b> Istalgan slaydni AI yordamida o'zgartirish yoki to'ldirish.\n"
-            "• 🌐 <b>Boshqa tilga tarjima:</b> 1 bosishda o'zbek, rus yoki ingliz tiliga o'girish.\n"
-            "• 🔄 <b>Dizaynni o'zgartirish (Re-skin):</b> 10 ta premium mavzudan biriga zudlik bilan o'tkazish.",
-            parse_mode="HTML",
-            reply_markup=finish_kb,
-        )
+            # 3-qadam: Spiker nutqi faylini yuborish (faqat agar tanlangan bo'lsa, alohida faylda)
+            if with_speech and speech_file_path and os.path.exists(speech_file_path):
+                speech_doc = FSInputFile(speech_file_path, filename=os.path.basename(speech_file_path))
+                await target_msg.answer_document(
+                    document=speech_doc,
+                    caption="🎤 <b>Taqdimotda so'zlash uchun to'liq Spiker Nutqi (Nutq_matni.txt)</b>",
+                    parse_mode="HTML",
+                )
+
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+
+            # Navigatsiya va qo'shimcha amallar tugmalari
+            finish_kb = InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(text="📄 PDF formatida", callback_data="btn_download_pdf"),
+                        InlineKeyboardButton(text="📸 Slaydlar (Rasm)", callback_data="btn_all_slides_images"),
+                    ],
+                    [
+                        InlineKeyboardButton(text="✏️ Slaydni tahrirlash", callback_data="btn_edit_slide"),
+                        InlineKeyboardButton(text="🌐 Boshqa tilga tarjima", callback_data="btn_translate"),
+                    ],
+                    [
+                        InlineKeyboardButton(text="🔄 Dizaynni o'zgartirish", callback_data="btn_reskin"),
+                        InlineKeyboardButton(text="🚀 Yangi Slayd", callback_data="btn_create_slide"),
+                    ],
+                    [
+                        InlineKeyboardButton(text="📁 Mening Taqdimotlarim", callback_data="btn_my_presentations"),
+                        InlineKeyboardButton(text="👤 Profil & Balans", callback_data="btn_profile"),
+                    ],
+                    [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
+                ]
+            )
+            await target_msg.answer(
+                "✨ <b>Taqdimot to'liq yetkazildi!</b>\n\n"
+                "💡 <b>Yangi imkoniyatlar:</b>\n"
+                "• 📸 <b>Slaydlar (Rasm):</b> Barcha slaydlarni sifatli rasm (PNG) to'plami sifatida olish.\n"
+                "• ✏️ <b>Slaydni tahrirlash:</b> Istalgan slaydni AI yordamida o'zgartirish yoki to'ldirish.\n"
+                "• 🌐 <b>Boshqa tilga tarjima:</b> 1 bosishda o'zbek, rus yoki ingliz tiliga o'girish.\n"
+                "• 🔄 <b>Dizaynni o'zgartirish (Re-skin):</b> 10 ta premium mavzudan biriga zudlik bilan o'tkazish.",
+                parse_mode="HTML",
+                reply_markup=finish_kb,
+            )
 
     except Exception as e:
         logger.error(f"Slayd yaratishda xatolik: {e}")
@@ -1605,9 +1637,10 @@ async def cb_download_pdf(callback: CallbackQuery):
         clean_topic = "".join(c for c in topic if c.isalnum() or c in (" ", "_", "-")).strip()[:35]
         pptx_path = os.path.join(config.GENERATED_DIR, f"{clean_topic}.pptx")
         if not os.path.exists(pptx_path):
-            pptx_path = create_presentation_file(content, theme_key=theme_key, author_name=author_name)
+            pptx_path = await asyncio.to_thread(create_presentation_file, content, theme_key=theme_key, author_name=author_name)
 
-        pdf_path = convert_pptx_to_pdf(
+        pdf_path = await asyncio.to_thread(
+            convert_pptx_to_pdf,
             pptx_path=pptx_path,
             content=content,
             theme_key=theme_key,
