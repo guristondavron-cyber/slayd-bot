@@ -1575,7 +1575,7 @@ async def handle_web_app_data(message: Message, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
     first_name = message.from_user.first_name or "Foydalanuvchi"
     username = message.from_user.username or ""
-    user_dict = database.get_or_create_user(user_id, first_name, username)
+    user_dict, _, _ = database.get_or_create_user(user_id, first_name, username)
 
     try:
         data = json.loads(message.web_app_data.data)
@@ -1596,7 +1596,7 @@ async def handle_web_app_data(message: Message, state: FSMContext, bot: Bot):
         await message.answer("⚠️ Mavzu kiritilmadi. Iltimos, qaytadan Mini App orqali yuboring.")
         return
 
-    if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
+    if not database.has_slides_left(user_id, is_admin(user_id)):
         await message.answer(
             "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
             reply_markup=InlineKeyboardMarkup(

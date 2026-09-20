@@ -1,10 +1,13 @@
 # Python 3.12 yengil konteyneri
 FROM python:3.12-slim
 
-# Tizim paketlarini yangilash
+# Tizim paketlarini yangilash va LibreOffice headless o'rnatish
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
     fonts-dejavu-core \
+    fonts-liberation \
+    libreoffice-impress-nogui \
+    libreoffice-common \
     && rm -rf /var/lib/apt/lists/*
 
 # Ishchi katalog

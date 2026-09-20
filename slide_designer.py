@@ -1327,6 +1327,121 @@ def _render_checklist_slide(slide, slide_data: SlideContent, theme: ColorTheme, 
         p_t.font.color.rgb = RGBColor(*theme.text_title)
 
 
+def get_render_font(size: int, bold: bool = False, italic: bool = False) -> ImageFont.ImageFont:
+    """Windows, Linux va Docker muhitlarida eng mos TrueType shriftni aniqlaydi va yuklaydi."""
+    candidates = []
+    if bold and italic:
+        candidates = [
+            "C:/Windows/Fonts/arialbi.ttf",
+            "C:/Windows/Fonts/calibriz.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-BoldOblique.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-BoldItalic.ttf",
+        ]
+    elif bold:
+        candidates = [
+            "C:/Windows/Fonts/arialbd.ttf",
+            "C:/Windows/Fonts/calibrib.ttf",
+            "C:/Windows/Fonts/segoeuib.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSansBold.ttf",
+        ]
+    elif italic:
+        candidates = [
+            "C:/Windows/Fonts/ariali.ttf",
+            "C:/Windows/Fonts/calibrii.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans-Oblique.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Italic.ttf",
+        ]
+    else:
+        candidates = [
+            "C:/Windows/Fonts/arial.ttf",
+            "C:/Windows/Fonts/calibri.ttf",
+            "C:/Windows/Fonts/segoeui.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
+        ]
+
+    for p in candidates:
+        if os.path.exists(p):
+            try:
+                return ImageFont.truetype(p, size=size)
+            except Exception:
+                pass
+
+    font_name = "arialbd.ttf" if bold else "arial.ttf"
+    try:
+        return ImageFont.truetype(font_name, size=size)
+    except Exception:
+        pass
+
+    try:
+        return ImageFont.load_default(size=size)
+    except Exception:
+        return ImageFont.load_default()
+
+
+def draw_wrapped_text(
+    draw: ImageDraw.ImageDraw,
+    text: str,
+    x: int,
+    y: int,
+    max_width: int,
+    font: ImageFont.ImageFont,
+    fill: Tuple[int, int, int],
+    line_spacing: int = 4,
+    max_lines: Optional[int] = None,
+) -> int:
+    """Matnni ko'rsatilgan kenglik bo'yicha so'zma-so'z o'rab, qatorma-qator chizadi.
+    Tugallangan Y koordinatasini qaytaradi.
+    """
+    if not text:
+        return y
+
+    words = str(text).split()
+    lines = []
+    current_line = []
+
+    for word in words:
+        test_line = " ".join(current_line + [word])
+        try:
+            bbox = draw.textbbox((0, 0), test_line, font=font)
+            line_w = bbox[2] - bbox[0]
+        except Exception:
+            line_w = len(test_line) * (getattr(font, "size", 16) * 0.55)
+
+        if line_w <= max_width:
+            current_line.append(word)
+        else:
+            if current_line:
+                lines.append(" ".join(current_line))
+                current_line = [word]
+            else:
+                lines.append(word)
+                current_line = []
+
+    if current_line:
+        lines.append(" ".join(current_line))
+
+    if max_lines and len(lines) > max_lines:
+        lines = lines[:max_lines]
+        if lines:
+            lines[-1] = lines[-1].rstrip(" .,!?:;") + "..."
+
+    cur_y = y
+    for line in lines:
+        draw.text((x, cur_y), line, font=font, fill=fill)
+        try:
+            bbox = draw.textbbox((0, 0), line, font=font)
+            line_h = bbox[3] - bbox[1]
+        except Exception:
+            line_h = getattr(font, "size", 16)
+        cur_y += max(line_h, 14) + line_spacing
+
+    return cur_y
+
+
 def render_slide_to_image(
     slide_data: SlideContent,
     theme: ColorTheme,
@@ -1340,83 +1455,170 @@ def render_slide_to_image(
     img = Image.new("RGB", (W, H), color=theme.bg_color)
     draw = ImageDraw.Draw(img)
 
+    # Shriftlar
+    f_badge = get_render_font(13, bold=True)
+    f_title = get_render_font(28, bold=True)
+    f_sub = get_render_font(16, italic=True)
+    f_card_title = get_render_font(18, bold=True)
+    f_body = get_render_font(14)
+    f_body_bold = get_render_font(14, bold=True)
+    f_footer = get_render_font(13)
+
     # Yuqori bezak chizig'i
-    draw.rectangle([(0, 0), (W, 10)], fill=theme.primary)
+    draw.rectangle([(0, 0), (W, 8)], fill=theme.primary)
 
     # Asosiy konteyner
-    draw.rounded_rectangle([(70, 60), (W - 70, H - 60)], radius=18, fill=theme.card_bg, outline=theme.card_border, width=2)
+    draw.rounded_rectangle([(60, 50), (W - 60, H - 50)], radius=18, fill=theme.card_bg, outline=theme.card_border, width=2)
 
     # Badge va raqam
     badge_text = (slide_data.category_badge or "SLAYD").upper()
-    draw.rounded_rectangle([(120, 95), (340, 135)], radius=8, fill=theme.badge_bg, outline=theme.primary, width=1)
-    draw.text((140, 108), f"📌 {badge_text[:20]}", fill=theme.badge_text)
+    try:
+        bbox_b = draw.textbbox((0, 0), f"📌 {badge_text}", font=f_badge)
+        badge_w = max(bbox_b[2] - bbox_b[0] + 28, 100)
+    except Exception:
+        badge_w = len(badge_text) * 10 + 40
 
-    draw.rounded_rectangle([(355, 95), (495, 135)], radius=8, fill=theme.card_bg, outline=theme.secondary, width=1)
-    draw.text((375, 108), f"📊 {current_num} / {total_slides}", fill=theme.secondary)
+    draw.rounded_rectangle([(100, 75), (100 + badge_w, 110)], radius=6, fill=theme.badge_bg, outline=theme.primary, width=1)
+    draw.text((114, 84), f"📌 {badge_text}", font=f_badge, fill=theme.badge_text)
+
+    num_text = f"📊 {current_num} / {total_slides}"
+    try:
+        bbox_n = draw.textbbox((0, 0), num_text, font=f_badge)
+        num_w = max(bbox_n[2] - bbox_n[0] + 28, 90)
+    except Exception:
+        num_w = 90
+
+    draw.rounded_rectangle([(115 + badge_w, 75), (115 + badge_w + num_w, 110)], radius=6, fill=theme.bg_color, outline=theme.secondary, width=1)
+    draw.text((129 + badge_w, 84), num_text, font=f_badge, fill=theme.secondary)
 
     # Agar logotip bo'lsa yuqori o'ng burchakka joylashtirish
     if logo_path and os.path.exists(logo_path):
         try:
             logo_img = Image.open(logo_path)
-            logo_img.thumbnail((140, 48), Image.Resampling.LANCZOS)
+            logo_img.thumbnail((150, 48), Image.Resampling.LANCZOS)
             if logo_img.mode in ("RGBA", "LA") or (logo_img.mode == "P" and "transparency" in logo_img.info):
-                img.paste(logo_img, (W - 240, 90), mask=logo_img.convert("RGBA").split()[3])
+                img.paste(logo_img, (W - 240, 75), mask=logo_img.convert("RGBA").split()[3])
             else:
-                img.paste(logo_img, (W - 240, 90))
+                img.paste(logo_img, (W - 240, 75))
         except Exception:
             pass
 
-    # Sarlavha
-    t_text = slide_data.title
-    if len(t_text) > 48:
-        t_line1 = t_text[:46] + "..."
-    else:
-        t_line1 = t_text
-    draw.text((120, 160), t_line1, fill=theme.text_title)
+    # Sarlavha (Title) — hech qachon shafqatsiz kesilmaydi, so'zma-so'z o'raladi!
+    title_end_y = draw_wrapped_text(
+        draw=draw,
+        text=slide_data.title,
+        x=100,
+        y=125,
+        max_width=W - 200,
+        font=f_title,
+        fill=theme.text_title,
+        line_spacing=4,
+        max_lines=2
+    )
 
     # Subtitle
     if slide_data.subtitle:
-        s_text = slide_data.subtitle[:80] + ("..." if len(slide_data.subtitle) > 80 else "")
-        draw.text((120, 205), s_text, fill=theme.text_muted)
+        sub_end_y = draw_wrapped_text(
+            draw=draw,
+            text=slide_data.subtitle,
+            x=100,
+            y=title_end_y + 4,
+            max_width=W - 200,
+            font=f_sub,
+            fill=theme.text_muted,
+            line_spacing=3,
+            max_lines=2
+        )
+        content_top = max(sub_end_y + 16, 220)
+    else:
+        content_top = max(title_end_y + 16, 210)
 
-    # Tartib / Layout bo'yicha kontent chizish
-    content_top = 260
-    content_bottom = H - 120
+    content_bottom = H - 95
 
+    # ------------------ LAYOUTLAR BO'YICHA KONTENT CHIZISH ------------------
     if slide_data.layout == "title_slide" or current_num == 1:
-        draw.rounded_rectangle([(120, 260), (740, 480)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=1)
-        draw.text((150, 290), "🌟 TAQDIMOT REJASI & MAQSADI", fill=theme.primary)
-        draw.text((150, 335), f"• Mavzu: {slide_data.title[:65]}", fill=theme.text_body)
+        # Chap qism: Katta reja va maqsad kartasi
+        draw.rounded_rectangle([(100, content_top), (760, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.card_border, width=2)
+        draw.text((130, content_top + 25), "🌟 TAQDIMOT REJASI & MAQSADI", font=f_card_title, fill=theme.primary)
+        
+        y_c = content_top + 65
+        y_c = draw_wrapped_text(draw, f"📌 Mavzu: {slide_data.title}", 130, y_c, 590, f_body_bold, theme.text_title, line_spacing=4, max_lines=2)
         if slide_data.subtitle:
-            draw.text((150, 375), f"• Tavsif: {slide_data.subtitle[:65]}", fill=theme.text_muted)
-        draw.text((150, 415), f"• Slaydlar soni: {total_slides} ta professional slayd", fill=theme.secondary)
+            y_c = draw_wrapped_text(draw, f"💡 Tavsif: {slide_data.subtitle}", 130, y_c + 6, 590, f_body, theme.text_muted, line_spacing=3, max_lines=3)
+        
+        draw.text((130, y_c + 10), f"📊 Slaydlar hajmi: {total_slides} ta to'liq professional slayd", font=f_body_bold, fill=theme.secondary)
 
         if author_name:
-            draw.rounded_rectangle([(120, 505), (550, 555)], radius=8, fill=theme.badge_bg, outline=theme.secondary, width=1)
-            draw.text((140, 520), f"👨‍💻 Tayyorladi: {author_name}", fill=theme.secondary)
+            draw.rounded_rectangle([(130, content_bottom - 55), (550, content_bottom - 15)], radius=8, fill=theme.badge_bg, outline=theme.secondary, width=1)
+            draw.text((150, content_bottom - 43), f"👨‍💻 Tayyorladi: {author_name}", font=f_badge, fill=theme.secondary)
 
-        draw.rounded_rectangle([(770, 260), (W - 120, 555)], radius=12, fill=theme.bg_color, outline=theme.primary, width=2)
-        draw.text((800, 290), f"{theme.emoji} {theme.name}", fill=theme.primary)
-        draw.text((800, 345), "✓ Zamonaviy 16:9 Widescreen", fill=theme.text_body)
-        draw.text((800, 395), "✓ @SlaydchiAkabot Kontent", fill=theme.text_body)
-        draw.text((800, 445), "✓ Tayyor Spiker Nutqi", fill=theme.text_body)
-        draw.text((800, 495), "✓ PowerPoint & PDF", fill=theme.secondary)
+        # O'ng qism: Standartlar va xususiyatlar kartasi
+        draw.rounded_rectangle([(785, content_top), (W - 100, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.primary, width=2)
+        draw.text((815, content_top + 25), f"{theme.emoji} {theme.name}", font=f_card_title, fill=theme.primary)
+        
+        features = [
+            "✓ Zamonaviy 16:9 Widescreen format",
+            "✓ @SlaydchiAkabot professional kontent",
+            "✓ To'liq Spiker Nutqi (Har bir slaydga)",
+            "✓ PowerPoint (.pptx) & Yuqori sifatli PDF",
+            "✓ Tahrirlash va tarjima qilish imkoniyati"
+        ]
+        f_y = content_top + 75
+        for feat in features:
+            draw.text((815, f_y), feat, font=f_body, fill=theme.text_body)
+            f_y += 40
+
+    elif slide_data.layout == "quote_highlight" or (slide_data.quote_text and not slide_data.cards):
+        # Iqtibos slaydi (Foydalanuvchi skrinshotidagi slayd!)
+        draw.rounded_rectangle([(100, content_top), (W - 100, content_bottom)], radius=16, fill=theme.bg_color, outline=theme.primary, width=2)
+        draw.rounded_rectangle([(125, content_top + 30), (133, content_bottom - 30)], radius=4, fill=theme.primary)
+        
+        # Tirnoq belgisi
+        f_q_icon = get_render_font(56, bold=True)
+        draw.text((155, content_top + 15), "“", font=f_q_icon, fill=theme.secondary)
+
+        # To'liq iqtibos matni (so'zma-so'z o'raladi, 5 qatorgacha to'liq sig'diriladi!)
+        quote_body = slide_data.quote_text or slide_data.highlight_takeaway or slide_data.subtitle or slide_data.title
+        f_quote = get_render_font(23, bold=True, italic=True)
+        quote_end_y = draw_wrapped_text(
+            draw=draw,
+            text=f'"{quote_body}"',
+            x=165,
+            y=content_top + 80,
+            max_width=W - 300,
+            font=f_quote,
+            fill=theme.text_title,
+            line_spacing=8,
+            max_lines=5
+        )
+
+        # Muallif / Manba
+        author = slide_data.quote_author or author_name or "Strategik xulosa va tahliliy qarash"
+        f_auth = get_render_font(15, bold=True)
+        try:
+            bbox_a = draw.textbbox((0, 0), f"—  {author}", font=f_auth)
+            auth_w = min(bbox_a[2] - bbox_a[0] + 40, W - 320)
+        except Exception:
+            auth_w = 260
+        auth_y = max(quote_end_y + 25, content_bottom - 60)
+        draw.rounded_rectangle([(165, auth_y), (165 + auth_w, auth_y + 38)], radius=8, fill=theme.badge_bg, outline=theme.secondary, width=1)
+        draw.text((185, auth_y + 10), f"—  {author}", font=f_auth, fill=theme.secondary)
 
     elif slide_data.layout == "chart_slide":
         left_w = 420
-        draw.rounded_rectangle([(120, content_top), (120 + left_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
-        draw.text((150, content_top + 30), "📊 ASOSIY STATISTIKA", fill=theme.primary)
+        draw.rounded_rectangle([(100, content_top), (100 + left_w, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.card_border, width=2)
+        draw.text((125, content_top + 25), "📊 ASOSIY STATISTIKA", font=f_card_title, fill=theme.primary)
         stats = slide_data.stats or []
         for s_i, st in enumerate(stats[:3]):
-            s_y = content_top + 80 + s_i * 85
-            draw.text((150, s_y), f"• {st.label}: {st.number}", fill=theme.text_title)
+            s_y = content_top + 70 + s_i * 90
+            draw.text((125, s_y), f"• {st.label}: {st.number}", font=f_body_bold, fill=theme.text_title)
             if st.description:
-                draw.text((165, s_y + 35), st.description[:40], fill=theme.text_muted)
+                draw_wrapped_text(draw, st.description, 140, s_y + 24, left_w - 60, f_body, theme.text_muted, line_spacing=2, max_lines=2)
 
-        chart_x = 120 + left_w + 40
-        chart_w = W - 120 - chart_x
-        draw.rounded_rectangle([(chart_x, content_top), (chart_x + chart_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.primary, width=2)
-        draw.text((chart_x + 30, content_top + 25), "📈 O'sish va Dinamika Diagrammasi", fill=theme.primary)
+        chart_x = 100 + left_w + 30
+        chart_w = W - 100 - chart_x
+        draw.rounded_rectangle([(chart_x, content_top), (chart_x + chart_w, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.primary, width=2)
+        draw.text((chart_x + 30, content_top + 25), "📈 O'sish va Dinamika Diagrammasi", font=f_card_title, fill=theme.primary)
 
         chart_base_y = content_bottom - 50
         max_bar_h = content_bottom - content_top - 120
@@ -1437,105 +1639,141 @@ def render_slide_to_image(
 
             col = theme.primary if b_i % 2 == 0 else theme.secondary
             draw.rounded_rectangle([(bx, by), (bx + bw, chart_base_y)], radius=6, fill=col)
-            draw.text((bx + 10, by - 25), b_item.number[:6], fill=theme.text_title)
-            draw.text((bx + 5, chart_base_y + 10), b_item.label[:12], fill=theme.text_muted)
+            draw.text((bx + 10, by - 24), b_item.number, font=f_body_bold, fill=theme.text_title)
+            draw.text((bx + 5, chart_base_y + 10), b_item.label[:14], font=f_body, fill=theme.text_muted)
 
     elif slide_data.stats and (slide_data.layout == "stats_metrics" or len(slide_data.stats) >= 2):
         st_list = slide_data.stats[:4]
         num_cards = max(len(st_list), 1)
-        card_w = int((W - 240 - 25 * (num_cards - 1)) / num_cards)
+        card_w = int((W - 200 - 20 * (num_cards - 1)) / num_cards)
+        f_stat_num = get_render_font(44, bold=True)
+        f_stat_lbl = get_render_font(17, bold=True)
+
         for i, st in enumerate(st_list):
-            c_x = 120 + i * (card_w + 25)
-            draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
-            draw.rounded_rectangle([(c_x + 15, content_top + 15), (c_x + 60, content_top + 20)], radius=3, fill=theme.primary)
-            draw.text((c_x + 20, content_top + 40), st.number[:10], fill=theme.primary)
-            draw.text((c_x + 20, content_top + 110), st.label[:25], fill=theme.text_title)
+            c_x = 100 + i * (card_w + 20)
+            draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.card_border, width=2)
+            draw.rounded_rectangle([(c_x + 2, content_top + 2), (c_x + card_w - 2, content_top + 6)], radius=2, fill=theme.primary if i % 2 == 0 else theme.secondary)
+            draw.text((c_x + 20, content_top + 25), st.number, font=f_stat_num, fill=theme.primary)
+            draw_wrapped_text(draw, st.label, c_x + 20, content_top + 85, card_w - 40, f_stat_lbl, theme.text_title, line_spacing=3, max_lines=2)
             if st.description:
-                draw.text((c_x + 20, content_top + 160), st.description[:60], fill=theme.text_muted)
+                draw_wrapped_text(draw, st.description, c_x + 20, content_top + 145, card_w - 40, f_body, theme.text_muted, line_spacing=4, max_lines=6)
 
     elif slide_data.comparison_col1 and slide_data.comparison_col2:
-        col_w = int((W - 240 - 30) / 2)
+        col_w = int((W - 200 - 25) / 2)
         cols = [
-            (slide_data.comparison_col1, 120, theme.text_muted, "✕"),
-            (slide_data.comparison_col2, 120 + col_w + 30, theme.primary, "✓"),
+            (slide_data.comparison_col1, 100, theme.text_muted, "✕"),
+            (slide_data.comparison_col2, 100 + col_w + 25, theme.primary, "✓"),
         ]
         for c_data, c_x, hl_color, icon in cols:
-            draw.rounded_rectangle([(c_x, content_top), (c_x + col_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
-            draw.text((c_x + 25, content_top + 25), f"{icon} {c_data.header[:30]}", fill=hl_color)
-            for p_idx, pt in enumerate(c_data.points[:5]):
-                draw.text((c_x + 25, content_top + 80 + p_idx * 45), f"• {pt[:45]}", fill=theme.text_body)
+            draw.rounded_rectangle([(c_x, content_top), (c_x + col_w, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.card_border, width=2)
+            draw.text((c_x + 25, content_top + 25), f"{icon}  {c_data.header}", font=f_card_title, fill=hl_color)
+            p_y = content_top + 75
+            for pt in c_data.points[:5]:
+                p_y = draw_wrapped_text(draw, f"• {pt}", c_x + 25, p_y, col_w - 50, f_body, theme.text_body, line_spacing=3, max_lines=3) + 8
 
-    elif slide_data.steps and slide_data.layout == "timeline_steps":
+    elif slide_data.steps and (slide_data.layout == "timeline_steps" or len(slide_data.steps) >= 2):
         st_list = slide_data.steps[:4]
         num_cards = max(len(st_list), 1)
-        card_w = int((W - 240 - 20 * (num_cards - 1)) / num_cards)
+        card_w = int((W - 200 - 18 * (num_cards - 1)) / num_cards)
         for i, step in enumerate(st_list):
-            c_x = 120 + i * (card_w + 20)
-            draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
-            draw.rounded_rectangle([(c_x + 20, content_top + 20), (c_x + 65, content_top + 65)], radius=22, fill=theme.primary)
-            draw.text((c_x + 35, content_top + 33), str(i + 1), fill=theme.bg_color)
-            draw.text((c_x + 20, content_top + 85), step.title[:22], fill=theme.text_title)
-            draw.text((c_x + 20, content_top + 130), step.description[:65], fill=theme.text_muted)
+            c_x = 100 + i * (card_w + 18)
+            draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.card_border, width=2)
+            draw.rounded_rectangle([(c_x + 20, content_top + 20), (c_x + 64, content_top + 64)], radius=22, fill=theme.primary)
+            draw.text((c_x + 36, content_top + 30), str(i + 1), font=f_card_title, fill=theme.bg_color)
+            t_y = draw_wrapped_text(draw, step.title, c_x + 20, content_top + 80, card_w - 40, f_card_title, theme.text_title, line_spacing=3, max_lines=2)
+            draw_wrapped_text(draw, step.description, c_x + 20, t_y + 8, card_w - 40, f_body, theme.text_body, line_spacing=4, max_lines=7)
 
-    elif slide_data.quote_text or slide_data.layout == "quote_highlight":
-        draw.rounded_rectangle([(120, content_top), (W - 120, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.primary, width=2)
-        draw.text((160, content_top + 30), "“", fill=theme.secondary)
-        q_text = slide_data.quote_text or slide_data.highlight_takeaway or slide_data.title
-        draw.text((160, content_top + 80), f'"{q_text[:110]}"', fill=theme.text_title)
-        author = slide_data.quote_author or author_name or "Ekspert xulosasi"
-        draw.rounded_rectangle([(160, content_bottom - 70), (480, content_bottom - 25)], radius=8, fill=theme.badge_bg, outline=theme.secondary, width=1)
-        draw.text((180, content_bottom - 55), f"— {author}", fill=theme.secondary)
+    elif slide_data.layout == "matrix_2x2" or (getattr(slide_data, "matrix_items", None) and len(slide_data.matrix_items) == 4):
+        items = slide_data.matrix_items or slide_data.cards[:4]
+        m_w = int((W - 200 - 20) / 2)
+        m_h = int((content_bottom - content_top - 16) / 2)
+        coords = [
+            (100, content_top),
+            (100 + m_w + 20, content_top),
+            (100, content_top + m_h + 16),
+            (100 + m_w + 20, content_top + m_h + 16),
+        ]
+        for i, m_item in enumerate(items[:4]):
+            mx, my = coords[i]
+            draw.rounded_rectangle([(mx, my), (mx + m_w, my + m_h)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
+            b_val = (m_item.badge or f"0{i+1}").upper()
+            draw.text((mx + 20, my + 15), b_val, font=get_render_font(12, bold=True), fill=theme.secondary)
+            t_y = draw_wrapped_text(draw, m_item.title, mx + 20, my + 35, m_w - 40, f_card_title, theme.text_title, line_spacing=2, max_lines=1)
+            draw_wrapped_text(draw, m_item.description, mx + 20, t_y + 6, m_w - 40, f_body, theme.text_body, line_spacing=3, max_lines=4)
 
-    elif slide_data.checklist and slide_data.layout == "checklist_points":
+    elif slide_data.checklist and (slide_data.layout == "checklist_points" or len(slide_data.checklist) >= 3):
         items = slide_data.checklist[:5]
-        item_h = int((content_bottom - content_top - 15 * (len(items) - 1)) / max(len(items), 1))
+        item_h = int((content_bottom - content_top - 12 * (len(items) - 1)) / max(len(items), 1))
         for i, itm in enumerate(items):
-            i_y = content_top + i * (item_h + 15)
-            draw.rounded_rectangle([(120, i_y), (W - 120, i_y + item_h)], radius=10, fill=theme.bg_color, outline=theme.card_border, width=1)
-            draw.text((150, i_y + 15), f"✓  {itm[:85]}", fill=theme.text_body)
+            i_y = content_top + i * (item_h + 12)
+            draw.rounded_rectangle([(100, i_y), (W - 100, i_y + item_h)], radius=10, fill=theme.bg_color, outline=theme.card_border, width=1)
+            draw.text((125, i_y + int(item_h / 2) - 10), "✓", font=f_card_title, fill=theme.primary)
+            draw_wrapped_text(draw, itm, 160, i_y + 12, W - 280, f_body, theme.text_body, line_spacing=3, max_lines=2)
+
+    elif slide_data.layout == "conclusion":
+        draw.rounded_rectangle([(100, content_top), (W - 100, content_bottom)], radius=16, fill=theme.bg_color, outline=theme.primary, width=2)
+        draw.text((135, content_top + 25), "🎯 ASOSIY XULOSA VA TAVSIYALAR", font=f_card_title, fill=theme.primary)
+        
+        takeaway = slide_data.highlight_takeaway or slide_data.quote_text or slide_data.subtitle or slide_data.title
+        y_next = draw_wrapped_text(draw, takeaway, 135, content_top + 70, W - 270, get_render_font(20, bold=True), theme.text_title, line_spacing=6, max_lines=3)
+        
+        cards = slide_data.cards or []
+        if cards:
+            c_top = y_next + 25
+            c_h = content_bottom - c_top - 15
+            if c_h > 80:
+                n_c = min(len(cards), 3)
+                cw = int((W - 270 - 16 * (n_c - 1)) / n_c)
+                for i, c_item in enumerate(cards[:n_c]):
+                    cx = 135 + i * (cw + 16)
+                    draw.rounded_rectangle([(cx, c_top), (cx + cw, c_top + c_h)], radius=10, fill=theme.card_bg, outline=theme.card_border, width=1)
+                    t_y = draw_wrapped_text(draw, c_item.title, cx + 15, c_top + 15, cw - 30, f_card_title, theme.secondary, line_spacing=2, max_lines=1)
+                    draw_wrapped_text(draw, c_item.description, cx + 15, t_y + 6, cw - 30, f_body, theme.text_body, line_spacing=3, max_lines=4)
 
     else:
-        cards = slide_data.cards or [CardItem(title="Asosiy tushuncha", description=slide_data.title, badge="01")]
+        # Standart cards_grid yoki 60/40 Split rasm
+        cards = slide_data.cards or [CardItem(title="Asosiy mazmun", description=slide_data.title, badge="01")]
         cards = cards[:4]
         
-        # Agar AI rasm mavjud bo'lsa 60/40 Split ko'rinishda chizish
         ai_img_path = fetch_ai_image_sync(slide_data.image_keyword) if slide_data.image_keyword else None
         if ai_img_path and os.path.exists(ai_img_path) and (current_num % 2 == 0 or current_num == 2):
-            left_w = 580
+            left_w = 640
             left_cards = cards[:3]
-            c_h = int((content_bottom - content_top - 15 * (len(left_cards) - 1)) / max(len(left_cards), 1))
+            n_c = max(len(left_cards), 1)
+            c_h = int((content_bottom - content_top - 14 * (n_c - 1)) / n_c)
             for i, card in enumerate(left_cards):
-                c_y = content_top + i * (c_h + 15)
-                draw.rounded_rectangle([(120, c_y), (120 + left_w, c_y + c_h)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
-                badge_t = card.badge or f"0{i+1}"
-                draw.text((140, c_y + 15), badge_t.upper(), fill=theme.secondary)
-                draw.text((140, c_y + 45), card.title[:30], fill=theme.text_title)
-                draw.text((140, c_y + 80), card.description[:60], fill=theme.text_body)
+                c_y = content_top + i * (c_h + 14)
+                draw.rounded_rectangle([(100, c_y), (100 + left_w, c_y + c_h)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
+                badge_t = (card.badge or f"0{i+1}").upper()
+                draw.text((120, c_y + 14), badge_t, font=get_render_font(12, bold=True), fill=theme.secondary)
+                t_end = draw_wrapped_text(draw, card.title, 120, c_y + 35, left_w - 40, f_card_title, theme.text_title, line_spacing=2, max_lines=1)
+                draw_wrapped_text(draw, card.description, 120, t_end + 6, left_w - 40, f_body, theme.text_body, line_spacing=3, max_lines=4)
 
             # O'ng tomonda AI Rasm
-            img_x = 120 + left_w + 30
-            img_w = W - 120 - img_x
+            img_x = 100 + left_w + 25
+            img_w = W - 100 - img_x
             draw.rounded_rectangle([(img_x, content_top), (img_x + img_w, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.primary, width=2)
             try:
                 loaded_img = Image.open(ai_img_path).convert("RGB")
-                loaded_img = loaded_img.resize((img_w - 20, content_bottom - content_top - 20), Image.Resampling.LANCZOS)
-                img.paste(loaded_img, (img_x + 10, content_top + 10))
+                loaded_img = loaded_img.resize((img_w - 16, content_bottom - content_top - 16), Image.Resampling.LANCZOS)
+                img.paste(loaded_img, (img_x + 8, content_top + 8))
             except Exception as e:
                 logger.warning(f"Preview AI rasm chizishda ogohlantirish: {e}")
         else:
             num_cards = max(len(cards), 1)
-            card_w = int((W - 240 - 25 * (num_cards - 1)) / num_cards)
+            card_w = int((W - 200 - 20 * (num_cards - 1)) / num_cards)
             for i, card in enumerate(cards):
-                c_x = 120 + i * (card_w + 25)
-                draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=12, fill=theme.bg_color, outline=theme.card_border, width=2)
-                badge_t = card.badge or f"0{i+1}"
-                draw.text((c_x + 20, content_top + 25), badge_t.upper(), fill=theme.secondary)
-                draw.text((c_x + 20, content_top + 65), card.title[:24], fill=theme.text_title)
-                draw.text((c_x + 20, content_top + 115), card.description[:85], fill=theme.text_body)
+                c_x = 100 + i * (card_w + 20)
+                draw.rounded_rectangle([(c_x, content_top), (c_x + card_w, content_bottom)], radius=14, fill=theme.bg_color, outline=theme.card_border, width=2)
+                draw.rounded_rectangle([(c_x + 2, content_top + 2), (c_x + card_w - 2, content_top + 6)], radius=2, fill=theme.primary if i % 2 == 0 else theme.secondary)
+                badge_t = (card.badge or f"0{i+1}").upper()
+                draw.text((c_x + 18, content_top + 18), badge_t, font=get_render_font(12, bold=True), fill=theme.secondary)
+                t_end = draw_wrapped_text(draw, card.title, c_x + 18, content_top + 40, card_w - 36, f_card_title, theme.text_title, line_spacing=3, max_lines=2)
+                draw_wrapped_text(draw, card.description, c_x + 18, t_end + 8, card_w - 36, f_body, theme.text_body, line_spacing=4, max_lines=8)
 
     # Footer
     author_ft = f"  •  Muallif: {author_name}" if author_name else ""
-    draw.text((120, H - 95), f"@SlaydchiAkabot  •  Slayd {current_num} / {total_slides}  •  {theme.name}{author_ft}", fill=theme.text_muted)
+    draw.text((100, H - 75), f"@SlaydchiAkabot  •  Slayd {current_num} / {total_slides}  •  {theme.name}{author_ft}", font=f_footer, fill=theme.text_muted)
 
     return img
 
@@ -1602,11 +1840,25 @@ def convert_pptx_to_pdf(
     theme_key: str = "dark_tech",
     author_name: Optional[str] = None,
 ) -> Optional[str]:
-    """PPTX faylini PDF ga o'giradi (Visual Pillow renderer yoki LibreOffice headless orqali)."""
+    """PPTX faylini PDF ga o'giradi (LibreOffice headless yoki Visual Pillow renderer orqali)."""
     pdf_path = pptx_path.rsplit(".", 1)[0] + ".pdf"
     out_dir = os.path.dirname(pptx_path) or "."
 
-    # 1. Agar kontent mavjud bo'lsa, to'g'ridan-to'g'ri yuqori aniqlikdagi 16:9 visual PDF yaratish
+    # 1. LibreOffice headless sinab ko'rish (agar serverda soffice mavjud bo'lsa, 100% PowerPoint bilan bir xil chiqadi)
+    try:
+        res = subprocess.run(
+            ["soffice", "--headless", "--convert-to", "pdf", pptx_path, "--outdir", out_dir],
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            timeout=25,
+        )
+        if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 1000:
+            logger.info("LibreOffice orqali 100% mukammal PDF yaratildi.")
+            return pdf_path
+    except Exception as se:
+        logger.info(f"soffice mavjud emas yoki ogohlantirish: {se}. Visual Pillow PDF ga o'tilmoqda.")
+
+    # 2. Agar kontent mavjud bo'lsa, yuqori sifatli 16:9 visual PDF yaratish
     if content and content.slides:
         try:
             res = create_presentation_pdf(
@@ -1619,19 +1871,6 @@ def convert_pptx_to_pdf(
                 return res
         except Exception as e:
             logger.warning(f"create_presentation_pdf xatoligi: {e}")
-
-    # 2. LibreOffice headless sinab ko'rish (Render/Linux serverda)
-    try:
-        res = subprocess.run(
-            ["soffice", "--headless", "--convert-to", "pdf", pptx_path, "--outdir", out_dir],
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            timeout=25,
-        )
-        if os.path.exists(pdf_path) and os.path.getsize(pdf_path) > 1000:
-            return pdf_path
-    except Exception:
-        pass
 
     # 3. ReportLab zaxira varianti
     if not content:
