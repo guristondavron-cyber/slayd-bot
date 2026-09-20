@@ -217,10 +217,18 @@ def channel_sub_keyboard(channel_data: Any) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_webapp_url(user_id: int) -> str:
+    base_url = config.WEBAPP_URL
+    if not base_url:
+        return ""
+    sep = "&" if "?" in base_url else "?"
+    return f"{base_url}{sep}user_id={user_id}"
+
+
 def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
-        [InlineKeyboardButton(text="📱 Web App orqali yaratish (Interaktiv)", web_app=WebAppInfo(url=config.WEBAPP_URL))],
+        [InlineKeyboardButton(text="📱 Web App orqali yaratish (Interaktiv)", web_app=WebAppInfo(url=get_webapp_url(user_id)))],
         [
             InlineKeyboardButton(text="📁 Mening Taqdimotlarim", callback_data="btn_my_presentations"),
             InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs"),
@@ -2927,7 +2935,7 @@ async def cb_admin_send_retargeting(callback: CallbackQuery, bot: Bot):
                 reply_markup=InlineKeyboardMarkup(
                     inline_keyboard=[
                         [InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide")],
-                        [InlineKeyboardButton(text="📱 Mini Appni Ochish", web_app=WebAppInfo(url=config.WEBAPP_URL))],
+                        [InlineKeyboardButton(text="📱 Mini Appni Ochish", web_app=WebAppInfo(url=get_webapp_url(uid)))],
                     ]
                 )
             )
@@ -3075,8 +3083,29 @@ async def handle_webapp(request):
 async def handle_create_slide_webapp(request):
     try:
         data = await request.json()
-        user_id = data.get("user_id")
         payload = data.get("payload", data)
+        user_id = data.get("user_id") or payload.get("user_id")
+
+        # Agar user_id to'g'ridan-to'g'ri berilmagan bo'lsa, URL query paramdan yoki initData dan olamiz
+        if not user_id:
+            user_id = request.query.get("user_id")
+
+        if not user_id and data.get("initData"):
+            try:
+                import urllib.parse
+                parsed = urllib.parse.parse_qs(data["initData"])
+                if "user" in parsed:
+                    user_obj = json.loads(parsed["user"][0])
+                    user_id = user_obj.get("id")
+            except Exception as parse_ex:
+                logger.warning(f"initData tahlil qilishda ogohlantirish: {parse_ex}")
+
+        if user_id:
+            try:
+                user_id = int(user_id)
+            except (ValueError, TypeError):
+                user_id = None
+
         topic = payload.get("topic", "").strip()
         slide_count = int(payload.get("slide_count", 7))
         theme_key = payload.get("theme_key", "dark_tech")
@@ -3086,34 +3115,50 @@ async def handle_create_slide_webapp(request):
         author_name = payload.get("author_name", "").strip() or None
 
         if not user_id:
-            return web.json_response({"ok": False, "error": "user_id topilmadi"}, status=400)
+            return web.json_response({"ok": False, "error": "Telegram foydalanuvchi ID si topilmadi. Web Appni bot ichidagi menyu orqali oching."}, status=400)
         if not topic or len(topic) < 3:
-            return web.json_response({"ok": False, "error": "Mavzu juda qisqa"}, status=400)
+            return web.json_response({"ok": False, "error": "Taqdimot mavzusi kamida 3 ta belgidan iborat bo'lishi kerak."}, status=400)
 
-        user_dict = database.get_or_create_user(user_id, "Foydalanuvchi", "")
-        if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
+        user_dict, _, _ = database.get_or_create_user(user_id, "Foydalanuvchi", "")
+        if not database.has_slides_left(user_id, is_admin(user_id)):
             if bot_instance:
-                await bot_instance.send_message(
-                    user_id,
-                    "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
-                    reply_markup=InlineKeyboardMarkup(
-                        inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]]
+                try:
+                    await bot_instance.send_message(
+                        user_id,
+                        "⚠️ <b>Sizning balansingizda slaydlar qolmagan.</b>\n"
+                        "Web App orqali yangi taqdimot yaratish uchun hisobingizni to'ldiring.",
+                        parse_mode="HTML",
+                        reply_markup=InlineKeyboardMarkup(
+                            inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]]
+                        )
                     )
-                )
-            return web.json_response({"ok": False, "error": "Slaydlar balansi yetarli emas"}, status=403)
+                except Exception as send_err:
+                    logger.warning(f"Balans xabarini yuborishda ogohlantirish: {send_err}")
+            return web.json_response({"ok": False, "error": "Slaydlar balansingiz tugagan. Bot ichida balansingizni to'ldiring."}, status=403)
 
         class DummyTargetMsg:
             def __init__(self, b: Bot, c_id: int):
                 self.bot = b
                 self.chat_id = c_id
+                self.chat = type("Chat", (), {"id": c_id, "type": "private"})()
+                self.from_user = type("User", (), {"id": c_id, "first_name": "Foydalanuvchi"})()
 
             async def answer(self, text, **kwargs):
+                return await self.bot.send_message(self.chat_id, text, **kwargs)
+
+            async def reply(self, text, **kwargs):
                 return await self.bot.send_message(self.chat_id, text, **kwargs)
 
             async def answer_photo(self, photo, **kwargs):
                 return await self.bot.send_photo(self.chat_id, photo, **kwargs)
 
+            async def reply_photo(self, photo, **kwargs):
+                return await self.bot.send_photo(self.chat_id, photo, **kwargs)
+
             async def answer_document(self, document, **kwargs):
+                return await self.bot.send_document(self.chat_id, document, **kwargs)
+
+            async def reply_document(self, document, **kwargs):
                 return await self.bot.send_document(self.chat_id, document, **kwargs)
 
             async def answer_media_group(self, media, **kwargs):
@@ -3137,7 +3182,7 @@ async def handle_create_slide_webapp(request):
                     doc_text=""
                 )
             )
-            return web.json_response({"ok": True, "message": "Boshlandi"})
+            return web.json_response({"ok": True, "message": "Generatsiya boshlandi"})
         else:
             return web.json_response({"ok": False, "error": "Bot hali ishga tushmagan"}, status=500)
     except Exception as e:

@@ -424,9 +424,10 @@
 
   <div class="modal-overlay" id="loadingModal">
     <div class="modal-box">
-      <div class="spinner"></div>
-      <h3 style="font-size: 16px; margin-bottom: 8px;">🚀 Generatsiya boshlandi!</h3>
-      <p style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">
+      <div class="spinner" id="modalSpinner"></div>
+      <div id="modalIcon" style="font-size: 38px; display: none; margin-bottom: 8px;"></div>
+      <h3 id="modalTitle" style="font-size: 16px; margin-bottom: 8px;">🚀 Generatsiya boshlandi!</h3>
+      <p id="modalText" style="font-size: 13px; color: var(--text-muted); line-height: 1.4;">
         Telegram botingizga o'ting, taqdimot tayyorlanmoqda...
       </p>
     </div>
@@ -441,6 +442,9 @@
         tg.expand();
         if (tg.setHeaderColor) tg.setHeaderColor('#090d16');
         if (tg.setBackgroundColor) tg.setBackgroundColor('#090d16');
+        if (tg.MainButton) {
+          tg.MainButton.hide();
+        }
       } catch (e) {
         console.warn("Telegram WebApp init warning:", e);
       }
@@ -451,12 +455,61 @@
     let selectedMode = 'general';
     let selectedLang = 'uz';
 
-    function triggerHaptic() {
+    function triggerHaptic(type = 'light') {
       try {
         if (tg?.HapticFeedback) {
-          tg.HapticFeedback.impactOccurred('light');
+          if (type === 'success' || type === 'error' || type === 'warning') {
+            tg.HapticFeedback.notificationOccurred(type);
+          } else {
+            tg.HapticFeedback.impactOccurred(type);
+          }
         }
       } catch (e) {}
+    }
+
+    // Foydalanuvchi Telegram ID sini 4 bosqichda ishonchli aniqlash
+    function getTelegramUserId() {
+      // 1. URL search query params (?user_id=...)
+      try {
+        const urlParams = new URLSearchParams(window.location.search);
+        const qId = urlParams.get('user_id');
+        if (qId && /^\d+$/.test(qId)) {
+          localStorage.setItem('slayd_user_id', qId);
+          return parseInt(qId, 10);
+        }
+      } catch (e) {}
+
+      // 2. tg.initDataUnsafe.user.id
+      if (tg?.initDataUnsafe?.user?.id) {
+        const uId = tg.initDataUnsafe.user.id;
+        localStorage.setItem('slayd_user_id', String(uId));
+        return uId;
+      }
+
+      // 3. tg.initData raw string tahlili
+      if (tg?.initData) {
+        try {
+          const p = new URLSearchParams(tg.initData);
+          const userRaw = p.get('user');
+          if (userRaw) {
+            const u = JSON.parse(userRaw);
+            if (u && u.id) {
+              localStorage.setItem('slayd_user_id', String(u.id));
+              return u.id;
+            }
+          }
+        } catch (e) {}
+      }
+
+      // 4. Oldin saqlangan kesh
+      try {
+        const cached = localStorage.getItem('slayd_user_id');
+        if (cached && /^\d+$/.test(cached)) {
+          return parseInt(cached, 10);
+        }
+      } catch (e) {}
+
+      return null;
     }
 
     // 1. Slaydlar soni tanlash
@@ -524,9 +577,16 @@
       const topic = topicEl.value.trim();
 
       if (!topic || topic.length < 3) {
-        triggerHaptic();
+        triggerHaptic('warning');
         alert("Iltimos, avval taqdimot mavzusini kiriting!");
         topicEl.focus();
+        return;
+      }
+
+      const userId = getTelegramUserId();
+      if (!userId) {
+        triggerHaptic('error');
+        alert("⚠️ Telegram foydalanuvchi ma'lumotlari aniqlanmadi.\nIltimos, Web Appni bot ichidagi '📱 Web App orqali yaratish' tugmasi orqali qaytadan oching!");
         return;
       }
 
@@ -535,6 +595,7 @@
 
       const payload = {
         action: "create_presentation",
+        user_id: userId,
         topic: topic,
         slide_count: selectedCount,
         theme_key: selectedTheme,
@@ -548,23 +609,29 @@
       const btn = document.getElementById('btnSubmit');
       btn.disabled = true;
       btn.innerHTML = "<span>⏳ Yuborilmoqda...</span>";
-      document.getElementById('loadingModal').style.display = 'flex';
 
-      // 1-usul: Telegram WebApp sendData (agar Keyboard Button orqali ochilgan bo'lsa)
-      let sentViaTg = false;
+      const modal = document.getElementById('loadingModal');
+      const spinner = document.getElementById('modalSpinner');
+      const modalIcon = document.getElementById('modalIcon');
+      const modalTitle = document.getElementById('modalTitle');
+      const modalText = document.getElementById('modalText');
+
+      if (spinner) spinner.style.display = 'block';
+      if (modalIcon) modalIcon.style.display = 'none';
+      if (modalTitle) modalTitle.innerText = "🚀 Generatsiya boshlandi!";
+      if (modalText) modalText.innerText = "Telegram botingizga o'ting, taqdimot tayyorlanmoqda...";
+      modal.style.display = 'flex';
+
+      // 1-usul: Telegram WebApp sendData (agar Reply Keyboard orqali ochilgan bo'lsa)
       if (tg) {
         try {
           tg.sendData(JSON.stringify(payload));
-          sentViaTg = true;
-        } catch (err) {
-          console.log("tg.sendData not available in this context, falling back to HTTP API:", err);
-        }
+        } catch (err) {}
       }
 
-      // 2-usul: Backend HTTP API orqali yuborish (barcha inline keyboard va browserlar uchun 100% kafolatlangan)
+      // 2-usul: Backend HTTP API orqali yuborish (Inline keyboard va barcha mijozlar uchun 100% kafolatlangan)
       try {
-        const userId = tg?.initDataUnsafe?.user?.id || null;
-        await fetch("/api/create_slide_webapp", {
+        const resp = await fetch("/api/create_slide_webapp", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -573,26 +640,48 @@
             payload: payload
           })
         });
-      } catch (apiErr) {
-        console.warn("API call error:", apiErr);
-      }
 
-      // Oynani yopish
-      setTimeout(() => {
-        if (tg) {
-          try { tg.close(); } catch(e) {}
+        const resData = await resp.json().catch(() => ({}));
+
+        if (resp.ok && resData.ok) {
+          triggerHaptic('success');
+          if (spinner) spinner.style.display = 'none';
+          if (modalIcon) {
+            modalIcon.style.display = 'block';
+            modalIcon.innerText = '✅';
+          }
+          if (modalTitle) modalTitle.innerText = "Muvaffaqiyatli yuborildi!";
+          if (modalText) modalText.innerHTML = "Taqdimot tayyorlanmoqda.<br>Telegram botingizga o'ting, slaydlar hozir yetkaziladi!";
+
+          setTimeout(() => {
+            if (tg) {
+              try { tg.close(); } catch(e) {}
+            }
+          }, 1500);
+        } else {
+          triggerHaptic('error');
+          modal.style.display = 'none';
+          btn.disabled = false;
+          btn.innerHTML = "<span>🚀 Slayd Yaratishni Boshlash</span>";
+          const err = resData.error || "Serverda xatolik yuz berdi.";
+          alert("⚠️ Xatolik: " + err);
         }
-      }, 1200);
+      } catch (apiErr) {
+        console.error("API call error:", apiErr);
+        triggerHaptic('error');
+        modal.style.display = 'none';
+        btn.disabled = false;
+        btn.innerHTML = "<span>🚀 Slayd Yaratishni Boshlash</span>";
+        alert("⚠️ Server bilan aloqa o'rnatilmadi. Iltimos, internet aloqasini tekshirib qayta urining.");
+      }
     }
 
     document.getElementById('btnSubmit').addEventListener('click', submitPresentation);
 
-    // Native Telegram MainButton qo'shish
+    // Telegram MainButton ni doimiy yashirish (ikkita tugma bo'lmasligi uchun)
     if (tg?.MainButton) {
       try {
-        tg.MainButton.setText("🚀 SLAYD YARATISH");
-        tg.MainButton.show();
-        tg.MainButton.onClick(submitPresentation);
+        tg.MainButton.hide();
       } catch(e) {}
     }
   </script>
