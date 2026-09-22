@@ -106,6 +106,13 @@ def init_db():
             if hasattr(conn.conn, "rollback"):
                 conn.conn.rollback()
 
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS phone_number TEXT")
+            conn.commit()
+        except Exception:
+            if hasattr(conn.conn, "rollback"):
+                conn.conn.rollback()
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS last_presentations (
             user_id BIGINT PRIMARY KEY,
@@ -253,6 +260,11 @@ def init_db():
 
         try:
             cursor.execute("ALTER TABLE users ADD COLUMN last_reminder_sent TIMESTAMP")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN phone_number TEXT")
         except Exception:
             pass
 
@@ -606,6 +618,30 @@ def get_user(user_id: int) -> Optional[Dict[str, Any]]:
     row = cursor.fetchone()
     conn.close()
     return dict(row) if row else None
+
+
+def set_user_phone(user_id: int, phone_number: str):
+    """Foydalanuvchining tasdiqlangan telefon raqamini saqlaydi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE users SET phone_number = ? WHERE user_id = ?", (phone_number, user_id))
+    conn.commit()
+    conn.close()
+
+
+def is_user_phone_verified(user_id: int) -> bool:
+    """Foydalanuvchi telefon raqami tasdiqlanganligini tekshiradi."""
+    user = get_user(user_id)
+    if not user:
+        return False
+    phone = user.get("phone_number")
+    return bool(phone and len(str(phone).strip()) >= 7)
+
+
+def get_user_phone(user_id: int) -> Optional[str]:
+    """Foydalanuvchining telefon raqamini qaytaradi."""
+    user = get_user(user_id)
+    return user.get("phone_number") if user else None
 
 
 def has_slides_left(user_id: int, is_admin: bool = False) -> bool:

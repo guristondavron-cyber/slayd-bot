@@ -21,6 +21,9 @@ from aiogram.types import (
     PreCheckoutQuery,
     WebAppInfo,
     MenuButtonWebApp,
+    KeyboardButton,
+    ReplyKeyboardMarkup,
+    ReplyKeyboardRemove,
 )
 from aiohttp import web
 
@@ -39,6 +42,9 @@ from gemini_service import (
     generate_mock_presentation,
     translate_presentation_content,
     tweak_single_slide,
+    generate_defense_questions,
+    evaluate_defense_answer,
+    DefenseEvaluation,
     PresentationContent,
     SlideContent,
 )
@@ -96,6 +102,10 @@ class SlideCreationState(StatesGroup):
 class SlideEditState(StatesGroup):
     waiting_for_slide_choice = State()
     waiting_for_instruction = State()
+
+
+class DefenseSimulatorState(StatesGroup):
+    waiting_for_answer = State()
 
 
 class UserPromoState(StatesGroup):
@@ -217,6 +227,49 @@ def channel_sub_keyboard(channel_data: Any) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=buttons)
 
 
+def get_phone_request_keyboard() -> ReplyKeyboardMarkup:
+    """Foydalanuvchidan telefon raqam so'rash klaviaturasi."""
+    return ReplyKeyboardMarkup(
+        keyboard=[
+            [KeyboardButton(text="📱 Telefon raqamni yuborish", request_contact=True)]
+        ],
+        resize_keyboard=True,
+        one_time_keyboard=True,
+    )
+
+
+async def check_phone_gate(event, user_id: int, bot: Bot) -> bool:
+    """Foydalanuvchi telefon raqami tasdiqlanganligini tekshiradi, bo'lmasa so'rov yuboradi."""
+    if is_admin(user_id):
+        return True
+    if database.is_user_phone_verified(user_id):
+        return True
+
+    text = (
+        "⚠️ <b>Telefon raqamingiz tasdiqlanmagan!</b>\n\n"
+        "Botning barcha imkoniyatlaridan (slayd yaratish, web app, himoya simulyatori) to'liq foydalanish uchun, "
+        "iltimos, pastdagi <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosib raqamingizni tasdiqlang."
+    )
+    if isinstance(event, CallbackQuery):
+        await safe_callback_answer(event, "⚠️ Avval telefon raqamingizni tasdiqlang!", show_alert=True)
+        try:
+            await bot.send_message(
+                chat_id=user_id,
+                text=text,
+                parse_mode="HTML",
+                reply_markup=get_phone_request_keyboard(),
+            )
+        except Exception:
+            pass
+    elif isinstance(event, Message):
+        await event.answer(
+            text=text,
+            parse_mode="HTML",
+            reply_markup=get_phone_request_keyboard(),
+        )
+    return False
+
+
 def get_webapp_url(user_id: int) -> str:
     base_url = config.WEBAPP_URL
     if not base_url:
@@ -230,18 +283,19 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
         [InlineKeyboardButton(text="📱 Web App orqali yaratish (Interaktiv)", web_app=WebAppInfo(url=get_webapp_url(user_id)))],
         [
+            InlineKeyboardButton(text="🎯 Himoya Simulyatori (AI)", callback_data="btn_defense_sim"),
             InlineKeyboardButton(text="📁 Mening Taqdimotlarim", callback_data="btn_my_presentations"),
+        ],
+        [
             InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs"),
-        ],
-        [
             InlineKeyboardButton(text="👤 Profil & Referal", callback_data="btn_profile"),
+        ],
+        [
             InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus"),
-        ],
-        [
             InlineKeyboardButton(text="🎟 Promokod", callback_data="btn_enter_promo"),
-            InlineKeyboardButton(text="🎨 Mavzular Ko'rgazmasi", callback_data="btn_themes"),
         ],
         [
+            InlineKeyboardButton(text="🎨 Mavzular Ko'rgazmasi", callback_data="btn_themes"),
             InlineKeyboardButton(text="ℹ️ Bot Haqida", callback_data="btn_help"),
         ],
     ]
@@ -436,6 +490,16 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
         )
         return
 
+    if not is_admin(user_id) and not database.is_user_phone_verified(user_id):
+        text = (
+            f"Assalomu alaykum, <b>{first_name}</b>! 👋\n\n"
+            f"<b>@SlaydchiAkabot</b> — Sun'iy intellekt orqali professional slaydlar yaratuvchi botga xush kelibsiz!\n\n"
+            f"Botning barcha imkoniyatlaridan (slayd yaratish, web app, himoya simulyatori) to'liq foydalanish va "
+            f"hisobingizga bepul slaydlarni olish uchun, iltimos, pastdagi <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosib raqamingizni tasdiqlang."
+        )
+        await message.answer(text, parse_mode="HTML", reply_markup=get_phone_request_keyboard())
+        return
+
     vip_badge = " [VIP CHEKSIZ]" if user_dict.get("is_vip") else ""
     balance_text = "Cheksiz (VIP)" if user_dict.get("is_vip") else f"{user_dict['slides_left']} ta"
 
@@ -450,12 +514,90 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
     await message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard(user_id))
 
 
+@router.message(F.contact)
+async def handle_user_contact_verification(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    first_name = message.from_user.first_name or "Foydalanuvchi"
+    username = message.from_user.username or ""
+    database.get_or_create_user(user_id, first_name, username)
+
+    contact = message.contact
+    if not contact:
+        return
+
+    phone = str(contact.phone_number).strip()
+    if not phone.startswith("+"):
+        phone = "+" + phone
+
+    database.set_user_phone(user_id, phone)
+    logger.info(f"Foydalanuvchi {user_id} telefon raqami tasdiqlandi: {phone}")
+
+    await message.answer(
+        f"✅ <b>Telefon raqamingiz ({phone}) muvaffaqiyatli tasdiqlandi!</b>\n\n"
+        "Botning barcha imkoniyatlari siz uchun ochildi. Istalgan mavzuda professional taqdimotlar yaratishingiz mumkin! 🎉",
+        parse_mode="HTML",
+        reply_markup=ReplyKeyboardRemove(),
+    )
+
+    user = database.get_user(user_id)
+    balance_text = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left'] if user else 3} ta"
+    text = (
+        f"Men <b>Professional Slayd Yaratuvchi (@SlaydchiAkabot)</b> botman.\n"
+        f"Siz menga ixtiyoriy <b>mavzu</b>, <b>PDF/Word hujjati</b>, <b>rasm/konspekt</b> yoki <b>ovozli xabar</b> yuboring — "
+        f"men 16:9 formatdagi PowerPoint taqdimot va uning <b>spiker nutqi matnini</b> tayyorlab beraman.\n\n"
+        f"📊 <b>Sizning balansingiz:</b> <b>{balance_text}</b>\n\n"
+        f"Boshlash uchun quyidagi tugmani bosing:"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard(user_id))
+
+
+@router.message(F.text.regexp(r"^\+?998[0-9]{9}$"))
+async def handle_text_phone_verification(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    if not database.is_user_phone_verified(user_id):
+        first_name = message.from_user.first_name or "Foydalanuvchi"
+        username = message.from_user.username or ""
+        database.get_or_create_user(user_id, first_name, username)
+
+        phone = message.text.strip()
+        if not phone.startswith("+"):
+            phone = "+" + phone
+        database.set_user_phone(user_id, phone)
+        logger.info(f"Foydalanuvchi {user_id} telefon raqami matn orqali tasdiqlandi: {phone}")
+
+        await message.answer(
+            f"✅ <b>Telefon raqamingiz ({phone}) muvaffaqiyatli tasdiqlandi!</b>\n\n"
+            "Botning barcha imkoniyatlari siz uchun ochildi. Istalgan mavzuda professional taqdimotlar yaratishingiz mumkin! 🎉",
+            parse_mode="HTML",
+            reply_markup=ReplyKeyboardRemove(),
+        )
+
+        user = database.get_user(user_id)
+        balance_text = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left'] if user else 3} ta"
+        text = (
+            f"Men <b>Professional Slayd Yaratuvchi (@SlaydchiAkabot)</b> botman.\n"
+            f"📊 <b>Sizning balansingiz:</b> <b>{balance_text}</b>\n\n"
+            f"Boshlash uchun quyidagi tugmani bosing:"
+        )
+        await message.answer(text, parse_mode="HTML", reply_markup=main_menu_keyboard(user_id))
+
+
 @router.callback_query(F.data == "btn_check_sub")
 async def cb_check_subscription(callback: CallbackQuery, bot: Bot):
     user_id = callback.from_user.id
     is_subbed, unsub_channels = await check_channel_subscription(bot, user_id)
     if is_subbed:
         await safe_callback_answer(callback, "A'zolik tasdiqlandi! Rahmat.")
+        if not is_admin(user_id) and not database.is_user_phone_verified(user_id):
+            await callback.message.answer(
+                "✅ <b>Obuna muvaffaqiyatli tasdiqlandi!</b>\n\n"
+                "Endi botdan to'liq foydalanish va bepul slaydlarga ega bo'lish uchun, "
+                "iltimos, pastdagi <b>«📱 Telefon raqamni yuborish»</b> tugmasini bosib raqamingizni tasdiqlang:",
+                parse_mode="HTML",
+                reply_markup=get_phone_request_keyboard(),
+            )
+            return
+
         user = database.get_user(user_id)
         bal = "Cheksiz (VIP)" if (user and user.get("is_vip")) else f"{user['slides_left']} ta"
         text = (
@@ -905,6 +1047,9 @@ async def cb_start_create(callback: CallbackQuery, state: FSMContext, bot: Bot):
             "⚠️ Slayd yaratish uchun quyidagi homiy kanal(lar)ga a'zo bo'ling:",
             reply_markup=channel_sub_keyboard(unsub_channels),
         )
+        return
+
+    if not await check_phone_gate(callback, user_id, bot):
         return
 
     if not database.has_slides_left(user_id, is_admin(user_id)):
@@ -1501,6 +1646,9 @@ async def execute_presentation_generation(
             finish_kb = InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
+                        InlineKeyboardButton(text="🎯 Himoya Simulyatori (AI Test)", callback_data="btn_defense_sim"),
+                    ],
+                    [
                         InlineKeyboardButton(text="📄 PDF formatida", callback_data="btn_download_pdf"),
                         InlineKeyboardButton(text="📸 Slaydlar (Rasm)", callback_data="btn_all_slides_images"),
                     ],
@@ -1522,6 +1670,7 @@ async def execute_presentation_generation(
             await target_msg.answer(
                 "✨ <b>Taqdimot to'liq yetkazildi!</b>\n\n"
                 "💡 <b>Yangi imkoniyatlar:</b>\n"
+                "• 🎯 <b>Himoya Simulyatori:</b> Komissiyaning 3 ta kutilmagan savoliga javob berib, himoyaga tayyorgarlikni sinash.\n"
                 "• 📸 <b>Slaydlar (Rasm):</b> Barcha slaydlarni sifatli rasm (PNG) to'plami sifatida olish.\n"
                 "• ✏️ <b>Slaydni tahrirlash:</b> Istalgan slaydni AI yordamida o'zgartirish yoki to'ldirish.\n"
                 "• 🌐 <b>Boshqa tilga tarjima:</b> 1 bosishda o'zbek, rus yoki ingliz tiliga o'girish.\n"
@@ -2095,6 +2244,212 @@ async def process_slide_edit_instruction(message: Message, state: FSMContext):
             pass
         await message.answer("❌ Slaydni tahrirlashda xatolik yuz berdi.", reply_markup=main_menu_keyboard(message.from_user.id))
         await state.clear()
+
+
+# ------------------ AI HIMOYA SIMULYATORI (MOCK DEFENSE Q&A) ------------------
+@router.callback_query(F.data == "btn_defense_sim")
+async def cb_start_defense_simulator(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    user_id = callback.from_user.id
+    if not await check_phone_gate(callback, user_id, bot):
+        return
+
+    await safe_callback_answer(callback, "AI Himoya Simulyatori ishga tushirilmoqda...")
+
+    last_p = database.get_last_presentation(user_id)
+    if not last_p:
+        await safe_edit_or_answer(
+            callback.message,
+            "⚠️ <b>Sizda hali saqlangan taqdimot mavjud emas!</b>\n\n"
+            "Himoya simulyatoridan o'tish uchun avval birorta mavzuda taqdimot yarating.",
+            reply_markup=main_menu_keyboard(user_id),
+        )
+        return
+
+    topic = last_p.get("topic", "Taqdimot")
+    content_json = last_p.get("content_json", "")
+    lang = "uz"
+    slides_summary = ""
+
+    if content_json:
+        try:
+            p_obj = PresentationContent.model_validate_json(content_json)
+            lang = p_obj.language or "uz"
+            summary_parts = []
+            for i, s in enumerate(p_obj.slides):
+                card_t = " / ".join(c.title for c in s.cards) if s.cards else ""
+                summary_parts.append(f"{i+1}. {s.title} ({s.layout}) {card_t}")
+            slides_summary = "\n".join(summary_parts)
+        except Exception:
+            slides_summary = topic
+
+    wait_msg = await callback.message.answer(
+        "🎓 <b>AI Himoya Simulyatori tayyorlanmoqda...</b>\n\n"
+        "🏛 <i>Ilmiy-ekspert komissiyasi sizning slaydlaringizni tahlil qilib, 3 ta jiddiy va kutilmagan savol tayyorlamoqda ⏳</i>",
+        parse_mode="HTML",
+    )
+
+    questions = await generate_defense_questions(
+        topic=topic,
+        slides_summary=slides_summary,
+        language=lang,
+    )
+
+    await state.set_state(DefenseSimulatorState.waiting_for_answer)
+    await state.update_data(
+        topic=topic,
+        language=lang,
+        questions=questions,
+        current_index=0,
+        scores=[],
+        feedbacks=[],
+    )
+
+    q1 = questions[0]
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="❌ Mashg'ulotni to'xtatish", callback_data="btn_cancel_defense")]
+        ]
+    )
+
+    text = (
+        f"🎓 <b>AI Himoya Simulyatori (Mock Defense)</b>\n"
+        f"📌 <b>Mavzu:</b> <i>«{topic}»</i>\n\n"
+        f"🏛 <b>Komissiya raisi:</b>\n"
+        f"<i>«Hurmatli ma'ruzachi! Taqdimotingiz bilan tanishib chiqdik. Mavzuni qanchalik chuqur o'zlashtirganingizni sinash uchun sizga 3 ta muhim savolimiz bor.»</i>\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n"
+        f"❓ <b>1-Savol (1/3):</b>\n"
+        f"<b>«{q1}»</b>\n"
+        f"━━━━━━━━━━━━━━━━━━━━\n\n"
+        f"✍️ <i>Javobingizni <b>matn shaklida</b> yozing yoki <b>ovozli xabar (audio)</b> sifatida yuboring!</i>"
+    )
+
+    try:
+        await wait_msg.delete()
+    except Exception:
+        pass
+
+    await callback.message.answer(text, parse_mode="HTML", reply_markup=cancel_kb)
+
+
+@router.callback_query(F.data == "btn_cancel_defense")
+async def cb_cancel_defense(callback: CallbackQuery, state: FSMContext):
+    await state.clear()
+    await safe_callback_answer(callback, "Himoya to'xtatildi.")
+    await safe_edit_or_answer(
+        callback.message,
+        "🏁 <b>Himoya simulyatori to'xtatildi.</b>\nIstalgan vaqt qaytadan sinab ko'rishingiz mumkin!",
+        reply_markup=main_menu_keyboard(callback.from_user.id),
+    )
+
+
+@router.message(DefenseSimulatorState.waiting_for_answer)
+async def process_defense_answer(message: Message, state: FSMContext, bot: Bot):
+    data = await state.get_data()
+    topic = data.get("topic", "Taqdimot")
+    language = data.get("language", "uz")
+    questions = data.get("questions", [])
+    current_index = data.get("current_index", 0)
+    scores = data.get("scores", [])
+
+    user_answer = ""
+    if message.voice:
+        status_msg = await message.answer("🎙 Ovozli javobingiz qabul qilindi, matnga aylantirilmoqda... ⏳")
+        try:
+            user_answer = await transcribe_voice_with_gemini(bot, message.voice.file_id)
+        except Exception as ve:
+            logger.warning(f"Voice transcribe error: {ve}")
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+    elif message.audio:
+        status_msg = await message.answer("🎙 Audio javobingiz qabul qilindi, matnga aylantirilmoqda... ⏳")
+        try:
+            user_answer = await transcribe_voice_with_gemini(bot, message.audio.file_id)
+        except Exception as ve:
+            logger.warning(f"Audio transcribe error: {ve}")
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+    else:
+        user_answer = (message.text or "").strip()
+
+    if not user_answer or len(user_answer) < 3:
+        await message.answer("⚠️ Iltimos, savolga tushunarli matn yoki ovozli xabar orqali javob bering.")
+        return
+
+    current_q = questions[current_index] if current_index < len(questions) else "Savol"
+    eval_msg = await message.answer("⚖️ <b>Komissiya javobingizni baholamoqda...</b> ⏳", parse_mode="HTML")
+
+    evaluation = await evaluate_defense_answer(
+        question=current_q,
+        user_answer=user_answer,
+        topic=topic,
+        language=language,
+    )
+
+    scores.append(evaluation.score)
+    await state.update_data(scores=scores)
+
+    try:
+        await eval_msg.delete()
+    except Exception:
+        pass
+
+    star_count = min(max(evaluation.score, 1), 10)
+    star_str = "⭐" * star_count
+    resp_text = (
+        f"📊 <b>Komissiya bahosi:</b> <b>{evaluation.score} / 10 ball</b> {star_str}\n\n"
+        f"🔍 <b>Tahlil & Fikr:</b>\n"
+        f"<i>{evaluation.feedback}</i>\n\n"
+        f"💡 <b>Tavsiya etilgan professional javob:</b>\n"
+        f"«{evaluation.ideal_response}»"
+    )
+    await message.answer(resp_text, parse_mode="HTML")
+
+    next_index = current_index + 1
+    if next_index < len(questions):
+        await state.update_data(current_index=next_index)
+        next_q = questions[next_index]
+        cancel_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="❌ Mashg'ulotni to'xtatish", callback_data="btn_cancel_defense")]
+            ]
+        )
+        next_text = (
+            f"━━━━━━━━━━━━━━━━━━━━\n"
+            f"❓ <b>{next_index + 1}-Savol ({next_index + 1}/3):</b>\n"
+            f"<b>«{next_q}»</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━\n\n"
+            f"✍️ <i>Javobingizni yozing yoki ovoz yuboring:</i>"
+        )
+        await message.answer(next_text, parse_mode="HTML", reply_markup=cancel_kb)
+    else:
+        # Yakuniy natijalar
+        await state.clear()
+        avg_score = sum(scores) / max(len(scores), 1)
+        if avg_score >= 8.5:
+            verdict = "🏆 <b>A'LO DARAJA!</b> Siz taqdimotni komissiya yoki auditoriya oldida mukammal va ishonchli himoya qilishga to'liq tayyorsiz."
+        elif avg_score >= 6.5:
+            verdict = "👍 <b>YAXSHI TAYYORGARLIK!</b> Javoblaringiz yetarli darajada, biroq savollarga aniq raqamlar va amaliy misollar bilan yondashsangiz, yanada ishonarli chiqadi."
+        else:
+            verdict = "⚠️ <b>KO'PROQ TAYYORGARLIK KERAK!</b> Slaydlardagi asosiy tushunchalarni qayta ko'rib chiqishni va nutq matnini yaxshiroq o'rganishni tavsiya etamiz."
+
+        finish_text = (
+            f"🎉 <b>AI Himoya Simulyatori Muvaffaqiyatli Yakunlandi!</b>\n\n"
+            f"📈 <b>Umumiy o'rtacha ballingiz:</b> <b>{avg_score:.1f} / 10 ball</b>\n\n"
+            f"{verdict}\n\n"
+            f"Boshqa taqdimot yaratish yoki yana sinab ko'rish uchun quyidagi tugmalardan foydalaning:"
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔄 Qaytadan himoya qilish", callback_data="btn_defense_sim")],
+                [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
+                [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
+            ]
+        )
+        await message.answer(finish_text, parse_mode="HTML", reply_markup=kb)
 
 
 # ------------------ MENING TAQDIMOTLARIM (FEATURE 6) ------------------
@@ -2954,14 +3309,16 @@ async def cb_admin_send_retargeting(callback: CallbackQuery, bot: Bot):
     )
 
 
-# To'g'ridan-to'g'ri yuborilgan audio, rasm va hujjatlarni qabul qilish
+# To'g'ridan-to'g'ri yuborilgan audio, rasm, hujjat va mavzu matnlarini qabul qilish
 @router.message(F.voice)
 async def handle_direct_voice(message: Message, state: FSMContext, bot: Bot):
     curr_state = await state.get_state()
     if curr_state:
         return
     user_id = message.from_user.id
-    user_dict = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
+    if not await check_phone_gate(message, user_id, bot):
+        return
+    user_dict, _, _ = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
     if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
         await message.answer(
             "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
@@ -2978,7 +3335,9 @@ async def handle_direct_document(message: Message, state: FSMContext, bot: Bot):
     if curr_state:
         return
     user_id = message.from_user.id
-    user_dict = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
+    if not await check_phone_gate(message, user_id, bot):
+        return
+    user_dict, _, _ = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
     if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
         await message.answer(
             "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
@@ -2995,7 +3354,9 @@ async def handle_direct_photo(message: Message, state: FSMContext, bot: Bot):
     if curr_state:
         return
     user_id = message.from_user.id
-    user_dict = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
+    if not await check_phone_gate(message, user_id, bot):
+        return
+    user_dict, _, _ = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
     if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
         await message.answer(
             "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
@@ -3004,6 +3365,25 @@ async def handle_direct_photo(message: Message, state: FSMContext, bot: Bot):
         return
     await state.set_state(SlideCreationState.waiting_for_topic)
     await process_photo_topic(message, state, bot)
+
+
+@router.message(F.text & ~F.text.startswith("/"))
+async def handle_direct_text(message: Message, state: FSMContext, bot: Bot):
+    curr_state = await state.get_state()
+    if curr_state:
+        return
+    user_id = message.from_user.id
+    if not await check_phone_gate(message, user_id, bot):
+        return
+    user_dict, _, _ = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
+    if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
+        await message.answer(
+            "⚠️ Sizning balansingizda slaydlar qolmagan. Tariflar bo'limidan to'ldirishingiz mumkin.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]])
+        )
+        return
+    await state.set_state(SlideCreationState.waiting_for_topic)
+    await process_topic_step(message, state, bot)
 
 
 @router.callback_query(F.data == "btn_themes")
@@ -3118,6 +3498,9 @@ async def handle_create_slide_webapp(request):
             return web.json_response({"ok": False, "error": "Telegram foydalanuvchi ID si topilmadi. Web Appni bot ichidagi menyu orqali oching."}, status=400)
         if not topic or len(topic) < 3:
             return web.json_response({"ok": False, "error": "Taqdimot mavzusi kamida 3 ta belgidan iborat bo'lishi kerak."}, status=400)
+
+        if not is_admin(user_id) and not database.is_user_phone_verified(user_id):
+            return web.json_response({"ok": False, "error": "Botdan foydalanish uchun avval bot ichida telefon raqamingizni tasdiqlang."}, status=403)
 
         user_dict, _, _ = database.get_or_create_user(user_id, "Foydalanuvchi", "")
         if not database.has_slides_left(user_id, is_admin(user_id)):

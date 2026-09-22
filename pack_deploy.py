@@ -27,8 +27,13 @@ exclude = {
     "run_24_7.bat",
     "run_24_7.ps1",
     "test_generator.py",
+    "slayd_bot_fayllari",
+    "slide_bot_deploy.zip",
 }
 
+# Clean staging directory if exists
+if os.path.exists(staging_dir):
+    shutil.rmtree(staging_dir)
 os.makedirs(staging_dir, exist_ok=True)
 
 print("Fayllar tekshirilmoqda va nusxalanmoqda...")
@@ -38,8 +43,6 @@ for item in os.listdir(src_dir):
     s_item = os.path.join(src_dir, item)
     d_item = os.path.join(staging_dir, item)
     if os.path.isdir(s_item):
-        if os.path.exists(d_item):
-            shutil.rmtree(d_item)
         shutil.copytree(s_item, d_item)
     else:
         shutil.copy2(s_item, d_item)

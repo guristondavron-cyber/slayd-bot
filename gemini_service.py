@@ -867,3 +867,145 @@ Javobni FAQAT SlideContent JSON formatida qaytaring, ortiqcha matnsiz.
             continue
 
     return slide
+
+
+class DefenseQuestions(BaseModel):
+    questions: List[str] = Field(description="Komissiya a'zosi tomonidan beriladigan 3 ta jiddiy va dolzarb savol")
+
+
+class DefenseEvaluation(BaseModel):
+    score: int = Field(description="Javobga qo'yilgan baho: 1 dan 10 gacha butun son")
+    feedback: str = Field(description="Javobning qisqa va aniq tahlili: kuchli tomonlari va kamchiliklari (2-3 jumla)")
+    ideal_response: str = Field(description="Ushbu savolga berilishi mumkin bo'lgan professional va mukammal javob namunasi (2-3 jumla)")
+
+
+async def generate_defense_questions(
+    topic: str,
+    slides_summary: str = "",
+    language: str = "uz",
+    api_key: Optional[str] = None,
+) -> List[str]:
+    """Taqdimot mavzusi va slaydlari asosida komissiya tomonidan beriladigan 3 ta jiddiy savol tuzadi."""
+    key = api_key or config.GEMINI_API_KEY
+    if not key:
+        return [
+            f"Ushbu «{topic}» mavzusida taklif qilayotgan asosiy yechimingizning mavjud muqobillardan eng katta farqi va ustunligi nimada?",
+            f"Loyihani yoki ushbu g'oyani amaliyotga tatbiq etishda qanday asosiy xavflar (risklar) mavjud va ularni qanday bartaraf etasiz?",
+            f"Ushbu tadqiqot yoki taqdimot natijalarining 1-2 yil ichidagi iqtisodiy/amaliy samaradorligini qanday baholaysiz?",
+        ]
+
+    client = genai.Client(api_key=key)
+    candidate_models = [
+        config.GEMINI_MODEL,
+        "gemini-2.5-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+    ]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
+
+    prompt = f"""Siz talabchan va professional ilmiy/biznes komissiya raisisiz (Hay'at a'zosi / Examiner).
+Ma'ruzachi «{topic}» mavzusida taqdimot himoya qilmoqda.
+Taqdimot mazmuni va qisqacha slaydlari:
+{slides_summary[:2500]}
+
+VAZIFA:
+Ma'ruzachining bilimini, tayyorgarligini va mavzuni qanchalik chuqur tushunganini sinash uchun eng dolzarb, kutilmagan va chuqur 3 ta savol tuzing:
+1. Nazariy asoslar yoki muammoning dolzarbligi bo'yicha chuqur savol.
+2. Amaliy qo'llanilishi, xavflar yoki yuzaga kelishi mumkin bo'lgan qiyinchiliklar bo'yicha savol.
+3. Raqobatchilar, iqtisodiy/ijtimoiy samara yoki kelajak istiqbollari bo'yicha tahliliy savol.
+
+TIL: {language} (o'zbek, rus yoki ingliz tili).
+Savollar professional, aniq va ma'ruzachini fikrlashga undaydigan bo'lsin.
+Javobni FAQAT DefenseQuestions JSON formatida qaytaring."""
+
+    for model_name in models_to_try:
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=DefenseQuestions,
+                    temperature=0.7,
+                ),
+            )
+            raw = response.text or ""
+            cleaned = _clean_json_string(raw)
+            parsed = DefenseQuestions.model_validate_json(cleaned)
+            if parsed.questions and len(parsed.questions) >= 3:
+                return parsed.questions[:3]
+        except Exception as e:
+            logger.warning(f"generate_defense_questions {model_name} da xatolik: {e}")
+            continue
+
+    return [
+        f"«{topic}» mavzusida taklif qilayotgan asosiy yondashuvingizning mavjud amaliyotdan asosiy farqi va ustunligi nimada?",
+        f"Ushbu mavzuni yoki yechimni hayotga tatbiq etishda qanday jiddiy to'siqlar yuzaga kelishi mumkin va ularni qanday yengasiz?",
+        f"Keltirilgan faktlar va xulosalarning ishonchliligi hamda kelajakdagi rivojlanish istiqbollarini qanday asoslaysiz?",
+    ]
+
+
+async def evaluate_defense_answer(
+    question: str,
+    user_answer: str,
+    topic: str,
+    language: str = "uz",
+    api_key: Optional[str] = None,
+) -> DefenseEvaluation:
+    """Foydalanuvchining komissiya savoliga bergan javobini xolisona baholaydi va mukammal javob namunasini beradi."""
+    key = api_key or config.GEMINI_API_KEY
+    fallback = DefenseEvaluation(
+        score=7,
+        feedback="Javobingiz umumiy ma'noda to'g'ri, biroq fikringizni aniq faktlar va aniq misollar bilan kuchaytirishingiz lozim.",
+        ideal_response="Mavzuning amaliy ahamiyatini ko'rsatib, raqamlar va aniq yechimlar asosida qisqa va ishonchli xulosa berish maqsadga muvofiq.",
+    )
+    if not key:
+        return fallback
+
+    client = genai.Client(api_key=key)
+    candidate_models = [
+        config.GEMINI_MODEL,
+        "gemini-2.5-flash",
+        "gemini-3.5-flash",
+        "gemini-flash-latest",
+    ]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
+
+    prompt = f"""Siz taqdimot/diplom ishi himoyasini qabul qilayotgan talabchan, adolatli va professional komissiya raisisiz.
+Mavzu: «{topic}»
+Komissiya bergan savol:
+«{question}»
+
+Ma'ruzachining bergan javobi:
+«{user_answer}»
+
+VAZIFA:
+Ma'ruzachining javobini xolisona va chuqur baholang:
+1. score: 1 dan 10 gacha butun son qo'ying (1-juda sust/noto'g'ri, 5-o'rtacha, 8-yaxshi, 10-a'lo va mukammal).
+2. feedback: Javobning qisqa va samimiy tahlili (2-3 jumla). Nima to'g'ri aytildi, nima yetishmadi yoki qaysi joyi zaif.
+3. ideal_response: Komissiyani qoyil qoldiradigan, ishonchli, professional va ideal javob namunasi (2-3 jumla).
+
+TIL: {language} (o'zbek, rus yoki ingliz tili).
+Javobni FAQAT DefenseEvaluation JSON formatida qaytaring."""
+
+    for model_name in models_to_try:
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=DefenseEvaluation,
+                    temperature=0.4,
+                ),
+            )
+            raw = response.text or ""
+            cleaned = _clean_json_string(raw)
+            return DefenseEvaluation.model_validate_json(cleaned)
+        except Exception as e:
+            logger.warning(f"evaluate_defense_answer {model_name} da xatolik: {e}")
+            continue
+
+    return fallback
