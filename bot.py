@@ -61,7 +61,18 @@ from slide_designer import (
 from essay_service import (
     generate_academic_essay_content,
     create_academic_essay_docx,
+    create_handwritten_essay_pdf,
     AcademicEssay,
+)
+from paraphrase_service import (
+    paraphrase_academic_text,
+    create_paraphrase_docx,
+    ParaphraseResult,
+)
+from article_service import (
+    generate_scientific_article_content,
+    create_scientific_article_docx,
+    ScientificArticle,
 )
 
 # Logging
@@ -117,6 +128,18 @@ class EssayCreationState(StatesGroup):
     waiting_for_topic = State()
     waiting_for_author = State()
     waiting_for_university = State()
+    waiting_for_language = State()
+    waiting_for_format = State()
+
+
+class ParaphraseState(StatesGroup):
+    waiting_for_input = State()
+
+
+class ArticleCreationState(StatesGroup):
+    waiting_for_topic = State()
+    waiting_for_author = State()
+    waiting_for_organization = State()
     waiting_for_language = State()
 
 
@@ -293,23 +316,27 @@ def get_webapp_url(user_id: int) -> str:
 def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
-        [InlineKeyboardButton(text="📝 Mustaqil Ish Yaratish (Word)", callback_data="btn_create_essay")],
+        [
+            InlineKeyboardButton(text="📝 Mustaqil Ish (Word & Daftar)", callback_data="btn_create_essay"),
+            InlineKeyboardButton(text="📄 Ilmiy Maqola / Tezis", callback_data="btn_create_article"),
+        ],
+        [
+            InlineKeyboardButton(text="🔍 Antiplagiat & Parafraz", callback_data="btn_paraphrase"),
+            InlineKeyboardButton(text="🎯 Himoya Simulyatori (AI)", callback_data="btn_defense_sim"),
+        ],
         [InlineKeyboardButton(text="📱 Web App orqali yaratish (Interaktiv)", web_app=WebAppInfo(url=get_webapp_url(user_id)))],
         [
-            InlineKeyboardButton(text="🎯 Himoya Simulyatori (AI)", callback_data="btn_defense_sim"),
-            InlineKeyboardButton(text="📁 Mening Taqdimotlarim", callback_data="btn_my_presentations"),
-        ],
-        [
+            InlineKeyboardButton(text="📁 Taqdimotlarim", callback_data="btn_my_presentations"),
             InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs"),
+        ],
+        [
             InlineKeyboardButton(text="👤 Profil & Referal", callback_data="btn_profile"),
-        ],
-        [
             InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus"),
-            InlineKeyboardButton(text="🎟 Promokod", callback_data="btn_enter_promo"),
         ],
         [
-            InlineKeyboardButton(text="🎨 Mavzular Ko'rgazmasi", callback_data="btn_themes"),
-            InlineKeyboardButton(text="ℹ️ Bot Haqida", callback_data="btn_help"),
+            InlineKeyboardButton(text="🎟 Promokod", callback_data="btn_enter_promo"),
+            InlineKeyboardButton(text="🎨 Mavzular", callback_data="btn_themes"),
+            InlineKeyboardButton(text="ℹ️ Yordam", callback_data="btn_help"),
         ],
     ]
     if is_admin(user_id):
@@ -403,6 +430,55 @@ def essay_language_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="🇷🇺 Русский", callback_data="essay_lang_ru"),
                 InlineKeyboardButton(text="🇬🇧 English", callback_data="essay_lang_en"),
             ],
+            [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
+        ]
+    )
+
+
+def essay_format_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🎓 1. Rasmiy OTM standarti (Word .docx)", callback_data="essay_fmt_word")],
+            [InlineKeyboardButton(text="✍️ 2. Daftarga qo'lda yozilgan (PDF)", callback_data="essay_fmt_handwritten")],
+            [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
+        ]
+    )
+
+
+def article_author_skip_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏩ O'tkazib yuborish (Muallifsiz)", callback_data="art_skip_author")],
+            [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
+        ]
+    )
+
+
+def article_org_skip_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="⏩ O'tkazib yuborish (Standart OTM)", callback_data="art_skip_org")],
+            [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
+        ]
+    )
+
+
+def article_language_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🇺🇿 O'zbekcha", callback_data="art_lang_uz"),
+                InlineKeyboardButton(text="🇷🇺 Русский", callback_data="art_lang_ru"),
+                InlineKeyboardButton(text="🇬🇧 English", callback_data="art_lang_en"),
+            ],
+            [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
+        ]
+    )
+
+
+def paraphrase_cancel_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
             [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
         ]
     )
@@ -547,11 +623,151 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
     vip_badge = " [VIP CHEKSIZ]" if user_dict.get("is_vip") else ""
     balance_text = "Cheksiz (VIP)" if user_dict.get("is_vip") else f"{user_dict['slides_left']} ta"
 
+    if command.args:
+        arg = command.args.strip()
+        if arg == "create_slide":
+            if not database.has_slides_left(user_id, is_admin(user_id)):
+                reward = database.get_setting("referral_reward", "2")
+                bot_info = await bot.get_me()
+                ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+                text = (
+                    f"⚠️ <b>Sizning bepul slaydlar limitingiz tugadi!</b>\n\n"
+                    f"🎁 <b>Har kuni bepul bonus:</b> Bosh menyudagi «🎁 Kunlik Bonus» tugmasini bosing!\n"
+                    f"👥 Yoki do'stlaringizni taklif qilib, har biri uchun <b>+{reward} ta bepul slayd</b> oling:\n"
+                    f"<code>{ref_link}</code>\n\n"
+                    f"Yoki 💎 <b>Tariflar</b> bo'limidan qulay paket sotib oling."
+                )
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus")],
+                        [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
+                        [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+                    ]
+                )
+                await message.answer(text, parse_mode="HTML", reply_markup=kb)
+                return
+
+            await state.set_state(SlideCreationState.waiting_for_mode)
+            text = (
+                "🎯 <b>Taqdimot yo'nalishini (formatini) tanlang:</b>\n\n"
+                "Sun'iy intellekt taqdimot rejasini va mazmunini qaysi uslubda tuzsin?"
+            )
+            await message.answer(text, parse_mode="HTML", reply_markup=mode_selection_keyboard())
+            return
+
+        elif arg == "create_essay":
+            if not database.has_slides_left(user_id, is_admin(user_id)):
+                reward = database.get_setting("referral_reward", "2")
+                bot_info = await bot.get_me()
+                ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+                text = (
+                    f"⚠️ <b>Sizning bepul limitingiz tugadi!</b>\n\n"
+                    f"🎁 <b>Har kuni bepul bonus:</b> Bosh menyudagi «🎁 Kunlik Bonus» tugmasini bosing!\n"
+                    f"👥 Yoki do'stlaringizni taklif qilib, har biri uchun <b>+{reward} ta bepul limit</b> oling:\n"
+                    f"<code>{ref_link}</code>"
+                )
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus")],
+                        [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
+                        [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+                    ]
+                )
+                await message.answer(text, parse_mode="HTML", reply_markup=kb)
+                return
+
+            await state.set_state(EssayCreationState.waiting_for_topic)
+            text = (
+                "📝 <b>Mustaqil Ish (Word & Daftarga yozilgan) Yaratish</b>\n\n"
+                "🎓 <i>OTM andozasidagi rasmiy Word (.docx) yoki Daftarga qo'lda yozilgandek ko'rinuvchi (PDF) mustaqil ish tayyorlash:</i>\n"
+                "• 🏛 <b>Titul varag'i:</b> OTM, Kafedra, Mavzu, Muallif\n"
+                "• 📑 <b>Mundarija (Reja)</b> va 🎯 <b>Kirish</b>\n"
+                "• 📚 <b>I & II Asosiy Boblar</b> va 💡 <b>Xulosa</b>\n"
+                "• 📖 <b>Adabiyotlar ro'yxati</b>\n\n"
+                "✍️ <b>Iltimos, Mustaqil ish mavzusini yozing, ovozli xabar yoki kitob/topshiriq rasmini yuboring:</b>"
+            )
+            cancel_kb = InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")]]
+            )
+            await message.answer(text, parse_mode="HTML", reply_markup=cancel_kb)
+            return
+
+        elif arg == "create_article":
+            if not database.has_slides_left(user_id, is_admin(user_id)):
+                reward = database.get_setting("referral_reward", "2")
+                bot_info = await bot.get_me()
+                ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+                text = (
+                    f"⚠️ <b>Sizning bepul limitingiz tugadi!</b>\n\n"
+                    f"🎁 <b>Har kuni bepul bonus:</b> Bosh menyudagi «🎁 Kunlik Bonus» tugmasini bosing!\n"
+                    f"👥 Yoki do'stlaringizni taklif qilib, har biri uchun <b>+{reward} ta bepul limit</b> oling:\n"
+                    f"<code>{ref_link}</code>"
+                )
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus")],
+                        [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
+                        [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+                    ]
+                )
+                await message.answer(text, parse_mode="HTML", reply_markup=kb)
+                return
+
+            await state.set_state(ArticleCreationState.waiting_for_topic)
+            text = (
+                "📄 <b>Ilmiy Maqola / Tezis (OAK Standarti) Yaratish</b>\n\n"
+                "🎓 <i>Ushbu bo'lim OAK va xalqaro ilmiy jurnallar talabiga mos professional maqola tayyorlab beradi:</i>\n"
+                "• 🏷 <b>UO'K (UDC) indeksi</b>\n"
+                "• 🌐 <b>3 tilda Annotatsiya va Kalit so'zlar</b> (O'zbek, Rus, Ingliz)\n"
+                "• 📑 <b>IMRAD strukturasi:</b> Kirish, Metodologiya, Tadqiqot natijalari, Muhokama va Xulosa\n"
+                "• 📖 <b>Adabiyotlar ro'yxati (References)</b>\n\n"
+                "✍️ <b>Iltimos, Maqola mavzusini kiriting yoki ovozli xabar yuboring:</b>"
+            )
+            cancel_kb = InlineKeyboardMarkup(
+                inline_keyboard=[[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")]]
+            )
+            await message.answer(text, parse_mode="HTML", reply_markup=cancel_kb)
+            return
+
+        elif arg == "paraphrase":
+            if not database.has_slides_left(user_id, is_admin(user_id)):
+                reward = database.get_setting("referral_reward", "2")
+                bot_info = await bot.get_me()
+                ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+                text = (
+                    f"⚠️ <b>Sizning bepul limitingiz tugadi!</b>\n\n"
+                    f"🎁 <b>Har kuni bepul bonus:</b> Bosh menyudagi «🎁 Kunlik Bonus» tugmasini bosing!\n"
+                    f"👥 Yoki do'stlaringizni taklif qilib, har biri uchun <b>+{reward} ta bepul limit</b> oling:\n"
+                    f"<code>{ref_link}</code>"
+                )
+                kb = InlineKeyboardMarkup(
+                    inline_keyboard=[
+                        [InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus")],
+                        [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
+                        [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+                    ]
+                )
+                await message.answer(text, parse_mode="HTML", reply_markup=kb)
+                return
+
+            await state.set_state(ParaphraseState.waiting_for_input)
+            text = (
+                "🔍 <b>Antiplagiat & AI Insoniylashtirish (Parafraz)</b>\n\n"
+                "🎯 <i>Ushbu xizmat matningizni Antiplagiat tizimlari (Antiplagiat.ru, Turnitin va boshqalar) hamda AI detektorlaridan 90%+ o'tadigan darajada qayta tahrirlab beradi.</i>\n\n"
+                "✨ <b>Xususiyatlari:</b>\n"
+                "• AI qoliplari va shablon jumlalarni akademik tabiiy tilga o'giradi\n"
+                "• Mazmun va ma'noni 100% saqlab qoladi\n"
+                "• Word (.docx) hujjati ko'rinishida yuklab olish imkoniyati\n\n"
+                "📝 <b>Iltimos, tekshirmoqchi bo'lgan matningizni yuboring yoki .docx / .pdf hujjat tashlang:</b>"
+            )
+            await message.answer(text, parse_mode="HTML", reply_markup=paraphrase_cancel_keyboard())
+            return
+
     text = (
         f"Assalomu alaykum, <b>{first_name}</b>{vip_badge}!\n\n"
-        f"Men <b>Professional Slayd va Mustaqil Ish Yaratuvchi (@SlaydchiAkabot)</b> botman.\n"
+        f"Men <b>Professional Slayd, Mustaqil Ish va Ilmiy Maqola Yaratuvchi (@SlaydchiAkabot)</b> botman.\n"
         f"Siz menga ixtiyoriy <b>mavzu</b>, <b>PDF/Word hujjati</b>, <b>rasm/konspekt</b> yoki <b>ovozli xabar</b> yuboring — "
-        f"men 16:9 formatdagi PowerPoint taqdimot, uning <b>spiker nutqi matnini</b> yoki OTM andozasidagi to'liq <b>Mustaqil Ish (Word)</b> tayyorlab beraman.\n\n"
+        f"men 16:9 PowerPoint taqdimot, OTM andozasidagi yoki <b>Daftarga qo'lda yozilgan Mustaqil ish</b>, OAK talabidagi <b>Ilmiy maqola</b> yoki matningizni <b>Antiplagiatdan</b> o'tkazib beraman.\n\n"
         f"📊 <b>Sizning balansingiz:</b> <b>{balance_text}</b>\n\n"
         f"Boshlash uchun quyidagi tugmani bosing:"
     )
@@ -2717,6 +2933,25 @@ async def process_essay_university_text(message: Message, state: FSMContext):
 async def cb_essay_language_chosen(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await safe_callback_answer(callback)
     lang_code = callback.data.split("essay_lang_")[1]
+    await state.update_data(language=lang_code)
+    await state.set_state(EssayCreationState.waiting_for_format)
+
+    text = (
+        "📑 <b>Mustaqil ish qaysi formatda tayyorlansin?</b>\n\n"
+        "🎓 <b>1. Rasmiy OTM standarti (Word .docx):</b>\n"
+        "• Times New Roman 14pt, 1.5 interval, 3.0 sm chap hoshiya\n"
+        "• Titul, mundarija, boblar va adabiyotlar ro'yxati bilan kafedraga topshirish uchun.\n\n"
+        "✍️ <b>2. Daftarga qo'lda yozilgan (PDF & Rasm):</b>\n"
+        "• 12/24 varoqli o'quvchi daftari foni (katak daftar), qizil hoshiya chizig'i va ko'k ruchka siyohi\n"
+        "• «Faqat daftarga qo'lda yozib topshirasan» deydigan talabchan ustozlar uchun tayyor yechim!"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=essay_format_keyboard())
+
+
+@router.callback_query(F.data.in_(["essay_fmt_word", "essay_fmt_handwritten"]), EssayCreationState.waiting_for_format)
+async def cb_essay_format_chosen(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await safe_callback_answer(callback)
+    fmt_type = "word" if callback.data == "essay_fmt_word" else "handwritten"
     data = await state.get_data()
     await state.clear()
 
@@ -2724,6 +2959,7 @@ async def cb_essay_language_chosen(callback: CallbackQuery, state: FSMContext, b
     topic = data.get("topic", "Mustaqil ish")
     author_name = data.get("author_name", "Talaba: ____________________")
     university = data.get("university", "O'ZBEKISTON RESPUBLIKASI OLIY TA'LIM, FAN VA INNOVATSIYALAR VAZIRLIGI")
+    lang_code = data.get("language", "uz")
 
     await execute_essay_generation(
         target_msg=callback.message,
@@ -2733,6 +2969,7 @@ async def cb_essay_language_chosen(callback: CallbackQuery, state: FSMContext, b
         university=university,
         language=lang_code,
         bot=bot,
+        format_type=fmt_type,
     )
 
 
@@ -2744,6 +2981,7 @@ async def execute_essay_generation(
     university: str,
     language: str,
     bot: Bot,
+    format_type: str = "word",
 ):
     if not database.has_slides_left(user_id, is_admin(user_id)):
         reward = database.get_setting("referral_reward", "2")
@@ -2784,27 +3022,6 @@ async def execute_essay_generation(
         safe_topic = "".join(c for c in topic if c.isalnum() or c in (" ", "_", "-")).strip()
         safe_topic = safe_topic[:30].replace(" ", "_") or "Mustaqil_Ish"
         os.makedirs(config.GENERATED_DIR, exist_ok=True)
-        docx_path = os.path.join(config.GENERATED_DIR, f"{safe_topic}_{user_id}_Mustaqil_Ish.docx")
-
-        await asyncio.to_thread(create_academic_essay_docx, essay_obj, docx_path)
-
-        # Balansdan 1 ta yechish
-        database.use_slide(user_id, is_admin(user_id))
-
-        try:
-            await status_msg.delete()
-        except Exception:
-            pass
-
-        doc_file = FSInputFile(docx_path, filename=os.path.basename(docx_path))
-        caption = (
-            f"📄 <b>Mustaqil Ish muvaffaqiyatli tayyorlandi!</b>\n\n"
-            f"📌 <b>Mavzu:</b> <i>«{topic}»</i>\n"
-            f"🏛 <b>OTM:</b> {university}\n"
-            f"👤 <b>Muallif:</b> {author_name}\n"
-            f"📑 <b>Format:</b> Microsoft Word (.docx) — OTM GOST standarti\n\n"
-            f"✨ <i>Hujjatda barcha boblar, paragraflar, kirish, xulosa va adabiyotlar to'liq Times New Roman 14pt, 1.5 intervalda yozilgan.</i>"
-        )
 
         finish_kb = InlineKeyboardMarkup(
             inline_keyboard=[
@@ -2821,12 +3038,70 @@ async def execute_essay_generation(
             ]
         )
 
-        await target_msg.answer_document(
-            document=doc_file,
-            caption=caption,
-            parse_mode="HTML",
-            reply_markup=finish_kb,
-        )
+        if format_type == "handwritten":
+            # Daftarga qo'lda yozilgan variant (PDF va preview rasm)
+            pdf_path = os.path.join(config.GENERATED_DIR, f"{safe_topic}_{user_id}_Qolda_Yozilgan.pdf")
+            out_pdf, preview_img = await asyncio.to_thread(create_handwritten_essay_pdf, essay_obj, pdf_path, "grid")
+
+            database.use_slide(user_id, is_admin(user_id))
+
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+
+            if preview_img and os.path.exists(preview_img):
+                await target_msg.answer_photo(
+                    photo=FSInputFile(preview_img),
+                    caption="✍️ <b>Daftarga qo'lda yozilgan variant namunasi (1-bet)</b>",
+                    parse_mode="HTML",
+                )
+
+            caption = (
+                f"✍️ <b>Daftarga qo'lda yozilgan Mustaqil Ish tayyorlandi!</b>\n\n"
+                f"📌 <b>Mavzu:</b> <i>«{topic}»</i>\n"
+                f"🏛 <b>OTM:</b> {university}\n"
+                f"👤 <b>Muallif:</b> {author_name}\n"
+                f"📑 <b>Format:</b> 12/24 varoqli katak daftari (PDF)\n"
+                f"🖋 <b>Ko'rinish:</b> Qizil hoshiya va ko'k ruchka siyohi bilan qo'lda yozilgan\n\n"
+                f"✨ <i>Buni to'g'ridan-to'g'ri chop etib yoki ustozingizga jo'natishingiz mumkin!</i>"
+            )
+            pdf_file = FSInputFile(out_pdf, filename=os.path.basename(out_pdf))
+            await target_msg.answer_document(
+                document=pdf_file,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=finish_kb,
+            )
+
+        else:
+            # Standart Word (.docx) varianti
+            docx_path = os.path.join(config.GENERATED_DIR, f"{safe_topic}_{user_id}_Mustaqil_Ish.docx")
+            await asyncio.to_thread(create_academic_essay_docx, essay_obj, docx_path)
+
+            database.use_slide(user_id, is_admin(user_id))
+
+            try:
+                await status_msg.delete()
+            except Exception:
+                pass
+
+            doc_file = FSInputFile(docx_path, filename=os.path.basename(docx_path))
+            caption = (
+                f"📄 <b>Mustaqil Ish muvaffaqiyatli tayyorlandi!</b>\n\n"
+                f"📌 <b>Mavzu:</b> <i>«{topic}»</i>\n"
+                f"🏛 <b>OTM:</b> {university}\n"
+                f"👤 <b>Muallif:</b> {author_name}\n"
+                f"📑 <b>Format:</b> Microsoft Word (.docx) — OTM GOST standarti\n\n"
+                f"✨ <i>Hujjatda barcha boblar, paragraflar, kirish, xulosa va adabiyotlar to'liq Times New Roman 14pt, 1.5 intervalda yozilgan.</i>"
+            )
+
+            await target_msg.answer_document(
+                document=doc_file,
+                caption=caption,
+                parse_mode="HTML",
+                reply_markup=finish_kb,
+            )
 
     except Exception as e:
         logger.error(f"execute_essay_generation da xatolik: {e}", exc_info=True)
@@ -2936,6 +3211,556 @@ async def cb_essay_from_slide_custom(callback: CallbackQuery, state: FSMContext)
         "Yoki pastdagi tugma orqali o'tkazib yuborishingiz mumkin:"
     )
     await callback.message.answer(text, parse_mode="HTML", reply_markup=essay_author_skip_keyboard())
+
+
+# ------------------ ANTIPLAGIAT & PARAFRAZ (AI HUMANIZER) ------------------
+@router.callback_query(F.data == "btn_paraphrase")
+async def cb_start_paraphrase(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    user_id = callback.from_user.id
+    if not await check_phone_gate(callback, user_id, bot):
+        return
+
+    await safe_callback_answer(callback)
+
+    if not database.has_slides_left(user_id, is_admin(user_id)):
+        reward = database.get_setting("referral_reward", "2")
+        bot_info = await bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+        text = (
+            f"⚠️ <b>Sizning bepul limitingiz tugadi!</b>\n\n"
+            f"🎁 <b>Har kuni bepul bonus:</b> Bosh menyudagi «🎁 Kunlik Bonus» tugmasini bosing!\n"
+            f"👥 Yoki do'stlaringizni taklif qilib, har biri uchun <b>+{reward} ta bepul limit</b> oling:\n"
+            f"<code>{ref_link}</code>\n\n"
+            f"Yoki 💎 <b>Tariflar</b> bo'limidan qulay paket sotib oling."
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus")],
+                [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
+                [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+            ]
+        )
+        await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
+        return
+
+    await state.set_state(ParaphraseState.waiting_for_input)
+    text = (
+        "🔍 <b>Antiplagiat & AI Matnni Insoniylashtirish (Parafraz)</b>\n\n"
+        "🎓 <i>Ushbu xizmat matningizdagi sun'iy intellekt (ChatGPT, Gemini) shablonlarini yo'qotadi, "
+        "jumlalarni boy akademik uslubda qayta yozadi va Antiplagiatdan (HEMIS, Unicheck) 90%+ o'tishini ta'minlaydi.</i>\n\n"
+        "📌 <b>Barcha faktlar, raqamlar, formulalar va iqtiboslar to'liq saqlanadi.</b>\n\n"
+        "✍️ <i>Tahrir qilmoqchi bo'lgan matningizni chatga yozib yuboring yoki Word (.docx) / PDF faylini tashlang:</i>"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=paraphrase_cancel_keyboard())
+
+
+@router.message(ParaphraseState.waiting_for_input, F.text)
+async def process_paraphrase_text_input(message: Message, state: FSMContext, bot: Bot):
+    text = (message.text or "").strip()
+    if len(text) < 30:
+        await message.answer("⚠️ Iltimos, tahlil va parafraz qilish uchun kamida 1-2 ta to'liq gap (30+ belgi) yuboring:")
+        return
+
+    await state.clear()
+    await execute_paraphrase_processing(message, message.from_user.id, text, bot)
+
+
+@router.message(ParaphraseState.waiting_for_input, F.document)
+async def process_paraphrase_doc_input(message: Message, state: FSMContext, bot: Bot):
+    doc = message.document
+    filename = doc.file_name.lower()
+
+    if not (filename.endswith(".docx") or filename.endswith(".pdf") or filename.endswith(".txt")):
+        await message.answer("⚠️ Iltimos, faqat Word (.docx), PDF yoki TXT fayl yuboring:")
+        return
+
+    status_msg = await message.answer("📄 <i>Fayl yuklab olinmoqda va o'qilmoqda...</i>", parse_mode="HTML")
+    try:
+        file_info = await bot.get_file(doc.file_id)
+        file_io = await bot.download_file(file_info.file_path)
+        file_bytes = file_io.read()
+
+        raw_text = ""
+        if filename.endswith(".docx"):
+            raw_text = extract_text_from_docx(file_bytes)
+        elif filename.endswith(".pdf"):
+            raw_text = extract_text_from_pdf(file_bytes)
+        elif filename.endswith(".txt"):
+            raw_text = extract_text_from_txt(file_bytes)
+
+        if not raw_text or len(raw_text.strip()) < 40:
+            await status_msg.edit_text("⚠️ Fayl ichida yetarli matn topilmadi. Matn ko'rinishida yozib yuboring.")
+            return
+
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        await state.clear()
+        text_chunk = raw_text[:4000]
+        await execute_paraphrase_processing(message, message.from_user.id, text_chunk, bot)
+
+    except Exception as e:
+        logger.error(f"process_paraphrase_doc_input da xatolik: {e}")
+        await status_msg.edit_text("⚠️ Faylni ochishda xatolik yuz berdi. Matn ko'rinishida yuboring.")
+
+
+async def execute_paraphrase_processing(target_msg: Message, user_id: int, text: str, bot: Bot):
+    status_msg = await target_msg.answer(
+        "⏳ <b>Antiplagiat tahlili va insoniylashtirish jarayoni ketmoqda...</b>\n\n"
+        "🤖 <i>AI matn sintaksisini qayta qurmoqda, sinonimlarni boyitmoqda va o'ziga xoslikni oshirmoqda (15-25 soniya)...</i>",
+        parse_mode="HTML",
+    )
+
+    try:
+        result: ParaphraseResult = await paraphrase_academic_text(text, language="uz")
+
+        os.makedirs(config.GENERATED_DIR, exist_ok=True)
+        docx_path = os.path.join(config.GENERATED_DIR, f"Antiplagiat_{user_id}_Natijasi.docx")
+        await asyncio.to_thread(create_paraphrase_docx, result, docx_path)
+
+        database.use_slide(user_id, is_admin(user_id))
+
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        orig_diff = max(result.originality_after - result.originality_before, 0)
+        improvements_text = "\n".join([f"• <i>{imp}</i>" for imp in result.improvements[:3]])
+
+        sample_preview = result.paraphrased_text
+        if len(sample_preview) > 900:
+            sample_preview = sample_preview[:900] + "..."
+
+        resp_text = (
+            f"✅ <b>Antiplagiat & Insoniylashtirish Muvaffaqiyatli Yakunlandi!</b>\n\n"
+            f"📊 <b>Natijalar Tahlili:</b>\n"
+            f"📉 Dastlabki taxminiy o'ziga xoslik: <b>{result.originality_before}%</b>\n"
+            f"🚀 Qayta ishlashdan keyingi o'ziga xoslik: <b>{result.originality_after}%</b> (<b>+{orig_diff}%</b> o'sish!)\n\n"
+            f"💡 <b>Asosiy o'zgarishlar:</b>\n"
+            f"{improvements_text}\n\n"
+            f"📝 <b>Qayta ishlangan matn (namuna):</b>\n"
+            f"«<i>{sample_preview}</i>»\n\n"
+            f"📑 <i>To'liq matn OTM andozasidagi Word (.docx) fayl sifatida quyida biriktirildi:</i>"
+        )
+
+        finish_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔍 Yana boshqa matnni parafraz qilish", callback_data="btn_paraphrase")],
+                [
+                    InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide"),
+                    InlineKeyboardButton(text="📝 Mustaqil Ish", callback_data="btn_create_essay"),
+                ],
+                [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
+            ]
+        )
+
+        doc_file = FSInputFile(docx_path, filename=os.path.basename(docx_path))
+        await target_msg.answer_document(
+            document=doc_file,
+            caption=resp_text,
+            parse_mode="HTML",
+            reply_markup=finish_kb,
+        )
+
+    except Exception as e:
+        logger.error(f"execute_paraphrase_processing da xatolik: {e}", exc_info=True)
+        try:
+            await status_msg.edit_text(
+                "❌ Matnni qayta ishlashda xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.",
+                reply_markup=main_menu_keyboard(user_id),
+            )
+        except Exception:
+            pass
+
+
+# ------------------ ILMIY MAQOLA / TEZIS GENERATOR (OAK STANDARTI) ------------------
+@router.callback_query(F.data == "btn_create_article")
+async def cb_start_create_article(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    user_id = callback.from_user.id
+    if not await check_phone_gate(callback, user_id, bot):
+        return
+
+    await safe_callback_answer(callback)
+
+    if not database.has_slides_left(user_id, is_admin(user_id)):
+        reward = database.get_setting("referral_reward", "2")
+        bot_info = await bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+        text = (
+            f"⚠️ <b>Sizning bepul limitingiz tugadi!</b>\n\n"
+            f"🎁 <b>Har kuni bepul bonus:</b> Bosh menyudagi «🎁 Kunlik Bonus» tugmasini bosing!\n"
+            f"👥 Yoki do'stlaringizni taklif qilib, har biri uchun <b>+{reward} ta bepul limit</b> oling:\n"
+            f"<code>{ref_link}</code>\n\n"
+            f"Yoki 💎 <b>Tariflar</b> bo'limidan qulay paket sotib oling."
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus")],
+                [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
+                [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+            ]
+        )
+        await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
+        return
+
+    await state.set_state(ArticleCreationState.waiting_for_topic)
+    text = (
+        "📄 <b>Ilmiy Maqola / Tezis Yaratish (OAK & Konferensiya)</b>\n\n"
+        "🎓 <i>Ushbu bo'lim OAK (Oliy Attestatsiya Komissiyasi) jurnallari va xalqaro konferensiyalar talablariga mos ilmiy maqola tayyorlab beradi:</i>\n"
+        "• 🔢 <b>UO'K (UDC) indeksi</b> — mavzuga mos rasmiy kod\n"
+        "• 🌐 <b>3 tilda Annotatsiya va Kalit so'zlar</b> (O'zbek, Rus, Ingliz)\n"
+        "• 🔬 <b>IMRAD strukturasi:</b> Kirish, Metodologiya, Natijalar, Muhokama va Xulosa\n"
+        "• 📚 <b>Foydalanilgan adabiyotlar</b> (6-8 ta ilmiy maqola va manbalar)\n\n"
+        "✍️ <b>Iltimos, ilmiy maqolangiz mavzusini yozing yoki ovozli xabar yuboring:</b>"
+    )
+    cancel_kb = InlineKeyboardMarkup(
+        inline_keyboard=[[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")]]
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=cancel_kb)
+
+
+@router.message(ArticleCreationState.waiting_for_topic, F.voice)
+async def process_article_voice_topic(message: Message, state: FSMContext, bot: Bot):
+    status_msg = await message.answer("🎙 <i>Ovoz tahlil qilinmoqda...</i>", parse_mode="HTML")
+    try:
+        file_info = await bot.get_file(message.voice.file_id)
+        voice_io = await bot.download_file(file_info.file_path)
+        voice_bytes = voice_io.read()
+
+        topic = await transcribe_voice_with_gemini(voice_bytes, mime_type="audio/ogg")
+        if not topic or len(topic) < 3:
+            topic = "Ilmiy tadqiqot maqolasi"
+
+        await status_msg.delete()
+        await state.update_data(topic=topic)
+        await state.set_state(ArticleCreationState.waiting_for_author)
+
+        text = (
+            f"🎙 <b>Aniqlangan maqola mavzusi:</b> <i>«{topic}»</i>\n\n"
+            "👤 <b>Muallif F.I.SH. va ilmiy darajasi/lavozimini kiriting:</b>\n"
+            "<i>Masalan: Abdullayev Ali, TATU magistranti</i>\n\n"
+            "Yoki pastdagi tugma orqali o'tkazib yuborishingiz mumkin:"
+        )
+        await message.answer(text, parse_mode="HTML", reply_markup=article_author_skip_keyboard())
+    except Exception as e:
+        logger.error(f"Ovozda xatolik: {e}")
+        await status_msg.edit_text("Ovozni o'qishda xatolik yuz berdi. Matn ko'rinishida yozib yuboring.")
+
+
+@router.message(ArticleCreationState.waiting_for_topic, F.text)
+async def process_article_text_topic(message: Message, state: FSMContext):
+    topic = (message.text or "").strip()
+    if len(topic) < 3:
+        await message.answer("⚠️ Iltimos, maqola mavzusini to'liqroq yozing:")
+        return
+
+    await state.update_data(topic=topic)
+    await state.set_state(ArticleCreationState.waiting_for_author)
+    text = (
+        f"📌 <b>Mavzu:</b> <i>«{topic}»</i>\n\n"
+        "👤 <b>Muallif F.I.SH. va ilmiy darajasi/lavozimini kiriting:</b>\n"
+        "<i>Masalan: Abdullayev Ali, TATU magistranti</i>\n\n"
+        "Yoki pastdagi tugma orqali o'tkazib yuborishingiz mumkin:"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=article_author_skip_keyboard())
+
+
+@router.callback_query(F.data == "art_skip_author", ArticleCreationState.waiting_for_author)
+async def cb_article_skip_author(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    await state.update_data(author_name="Tadqiqotchi / Muallif")
+    await state.set_state(ArticleCreationState.waiting_for_organization)
+    text = (
+        "🏛 <b>OTM yoki Ilmiy muassasa nomini kiriting:</b>\n"
+        "<i>Masalan: Toshkent Axborot Texnologiyalari Universiteti</i>\n\n"
+        "Yoki pastdagi tugma orqali o'tkazib yuborishingiz mumkin:"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=article_org_skip_keyboard())
+
+
+@router.message(ArticleCreationState.waiting_for_author, F.text)
+async def process_article_author_text(message: Message, state: FSMContext):
+    author = message.text.strip()
+    await state.update_data(author_name=author)
+    await state.set_state(ArticleCreationState.waiting_for_organization)
+    text = (
+        f"👤 <b>Muallif:</b> {author}\n\n"
+        "🏛 <b>OTM yoki Ilmiy muassasa nomini kiriting:</b>\n"
+        "<i>Masalan: Toshkent Axborot Texnologiyalari Universiteti</i>\n\n"
+        "Yoki pastdagi tugma orqali o'tkazib yuborishingiz mumkin:"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=article_org_skip_keyboard())
+
+
+@router.callback_query(F.data == "art_skip_org", ArticleCreationState.waiting_for_organization)
+async def cb_article_skip_org(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    await state.update_data(organization="O'zbekiston Respublikasi Oliy Ta'lim Muassasasi")
+    await state.set_state(ArticleCreationState.waiting_for_language)
+    text = (
+        "🌐 <b>Maqolaning asosiy tili qaysi bo'lsin?</b>\n"
+        "(Annotatsiya va kalit so'zlar barcha tillarda 3 tilda kiritiladi):"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=article_language_keyboard())
+
+
+@router.message(ArticleCreationState.waiting_for_organization, F.text)
+async def process_article_org_text(message: Message, state: FSMContext):
+    org = message.text.strip()
+    await state.update_data(organization=org)
+    await state.set_state(ArticleCreationState.waiting_for_language)
+    text = (
+        f"🏛 <b>Muassasa:</b> {org}\n\n"
+        "🌐 <b>Maqolaning asosiy tili qaysi bo'lsin?</b>\n"
+        "(Annotatsiya va kalit so'zlar barcha tillarda 3 tilda kiritiladi):"
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=article_language_keyboard())
+
+
+@router.callback_query(F.data.startswith("art_lang_"), ArticleCreationState.waiting_for_language)
+async def cb_article_lang_chosen(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await safe_callback_answer(callback)
+    lang_code = callback.data.split("art_lang_")[1]
+    data = await state.get_data()
+    await state.clear()
+
+    user_id = callback.from_user.id
+    topic = data.get("topic", "Ilmiy maqola")
+    author_name = data.get("author_name", "Tadqiqotchi")
+    organization = data.get("organization", "O'zbekiston Respublikasi Oliy Ta'lim Muassasasi")
+
+    await execute_article_generation(
+        target_msg=callback.message,
+        user_id=user_id,
+        topic=topic,
+        author_name=author_name,
+        organization=organization,
+        language=lang_code,
+        bot=bot,
+    )
+
+
+async def execute_article_generation(
+    target_msg: Message,
+    user_id: int,
+    topic: str,
+    author_name: str,
+    organization: str,
+    language: str,
+    bot: Bot,
+):
+    if not database.has_slides_left(user_id, is_admin(user_id)):
+        await target_msg.answer("⚠️ Limitingiz yetarli emas. Bepul limit olish uchun kunlik bonusdan foydalaning.")
+        return
+
+    status_msg = await target_msg.answer(
+        "⏳ <b>Ilmiy maqola tayyorlanmoqda...</b>\n\n"
+        "🤖 <i>Gemini AI UO'K indeksini aniqlamoqda, 3 tilda annotatsiya va IMRAD strukturasini shakllantirmoqda (20-30 soniya)...</i>",
+        parse_mode="HTML",
+    )
+
+    try:
+        article_obj = await generate_scientific_article_content(
+            topic=topic,
+            author_name=author_name,
+            organization=organization,
+            language=language,
+        )
+
+        safe_topic = "".join(c for c in topic if c.isalnum() or c in (" ", "_", "-")).strip()
+        safe_topic = safe_topic[:30].replace(" ", "_") or "Ilmiy_Maqola"
+        os.makedirs(config.GENERATED_DIR, exist_ok=True)
+        docx_path = os.path.join(config.GENERATED_DIR, f"{safe_topic}_{user_id}_Ilmiy_Maqola.docx")
+
+        await asyncio.to_thread(create_scientific_article_docx, article_obj, docx_path)
+
+        database.use_slide(user_id, is_admin(user_id))
+
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        doc_file = FSInputFile(docx_path, filename=os.path.basename(docx_path))
+        caption = (
+            f"📄 <b>Ilmiy Maqola / Tezis muvaffaqiyatli tayyorlandi!</b>\n\n"
+            f"📌 <b>Mavzu:</b> <i>«{topic}»</i>\n"
+            f"🔢 <b>{article_obj.udc}</b>\n"
+            f"👤 <b>Muallif:</b> {author_name}\n"
+            f"🏛 <b>Muassasa:</b> {organization}\n"
+            f"📑 <b>Format:</b> Microsoft Word (.docx) — OAK & Konferensiya andozasi\n\n"
+            f"✨ <i>Kirish, Metodologiya, Natijalar, Muhokama va 3 tilda annotatsiyalar to'liq kiritilgan.</i>"
+        )
+
+        finish_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🚀 Ushbu maqolaga Slayd tayyorlash", callback_data="btn_create_slide")],
+                [
+                    InlineKeyboardButton(text="📄 Yangi Ilmiy Maqola", callback_data="btn_create_article"),
+                    InlineKeyboardButton(text="🔍 Antiplagiat Tekshiruv", callback_data="btn_paraphrase"),
+                ],
+                [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
+            ]
+        )
+
+        await target_msg.answer_document(
+            document=doc_file,
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=finish_kb,
+        )
+
+    except Exception as e:
+        logger.error(f"execute_article_generation da xatolik: {e}", exc_info=True)
+        try:
+            await status_msg.edit_text(
+                "❌ Ilmiy maqolani tayyorlashda xatolik yuz berdi. Iltimos, birozdan so'ng qayta urinib ko'ring.",
+                reply_markup=main_menu_keyboard(user_id),
+            )
+        except Exception:
+            pass
+
+
+# ------------------ TELEGRAM GURUH REJIMI (GROUP BOT INTEGRATION) ------------------
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("start"))
+async def group_cmd_start(message: Message, bot: Bot):
+    bot_info = await bot.get_me()
+    text = (
+        f"👋 <b>Assalomu alaykum, hurmatli guruh a'zolari!</b>\n\n"
+        f"Men <b>@{bot_info.username}</b> — professional taqdimotlar, mustaqil ishlar va ilmiy maqolalar tayyorlovchi sun'iy intellekt botiman.\n\n"
+        f"📌 <b>Guruhda ishlatish uchun qulay buyruqlar:</b>\n"
+        f"• <code>/slayd Mavzu</code> — Slayd (PowerPoint) taqdimot yaratish\n"
+        f"• <code>/mustaqil Mavzu</code> — Mustaqil ish (Word & Qo'lda yozilgan PDF)\n"
+        f"• <code>/maqola Mavzu</code> — OAK talabidagi ilmiy maqola / tezis\n"
+        f"• <code>/parafraz</code> — Antiplagiatdan o'tuvchi tahrir\n\n"
+        f"💡 <i>Istalgan mavzuni yozing va tugmani bosing:</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Botda Slayd Yaratish", url=f"https://t.me/{bot_info.username}?start=create_slide")],
+            [InlineKeyboardButton(text="📝 Mustaqil Ish Olish", url=f"https://t.me/{bot_info.username}?start=create_essay")],
+        ]
+    )
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("slayd"))
+async def group_cmd_slayd(message: Message, command: CommandObject, bot: Bot):
+    bot_info = await bot.get_me()
+    topic = (command.args or "").strip()
+
+    if not topic:
+        text = (
+            "⚠️ <b>Mavzu kiritilmadi!</b>\n\n"
+            "Format: <code>/slayd Mavzu nomi</code>\n"
+            "<i>Masalan:</i> <code>/slayd Kiberxavfsizlik asoslari</code>"
+        )
+        await message.reply(text, parse_mode="HTML")
+        return
+
+    text = (
+        f"🎯 <b>«{topic}» mavzusida professional slayd tayyorlash!</b>\n\n"
+        f"Sun'iy intellekt 16:9 formatdagi PowerPoint taqdimot va uning so'zlash nutqi matnini tayyorlashga tayyor.\n\n"
+        f"👇 <i>Tayyor taqdimotni qabul qilib olish uchun pastdagi tugmani bosing:</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📥 Taqdimotni Botda Olish (Bepul)", url=f"https://t.me/{bot_info.username}?start=create_slide")],
+        ]
+    )
+    await message.reply(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("mustaqil"))
+async def group_cmd_mustaqil(message: Message, command: CommandObject, bot: Bot):
+    bot_info = await bot.get_me()
+    topic = (command.args or "").strip()
+
+    if not topic:
+        text = (
+            "⚠️ <b>Mavzu kiritilmadi!</b>\n\n"
+            "Format: <code>/mustaqil Mavzu nomi</code>\n"
+            "<i>Masalan:</i> <code>/mustaqil Sun'iy intellekt va raqamli iqtisodiyot</code>"
+        )
+        await message.reply(text, parse_mode="HTML")
+        return
+
+    text = (
+        f"📝 <b>«{topic}» mavzusida Mustaqil Ish</b>\n\n"
+        f"OTM standarti bo'yicha Word (.docx) yoki Daftarga qo'lda yozilgan (PDF) variantni olishingiz mumkin.\n\n"
+        f"👇 <i>Hujjatni shakllantirish uchun botga o'ting:</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📄 Mustaqil Ishni Botda Olish", url=f"https://t.me/{bot_info.username}?start=create_essay")],
+        ]
+    )
+    await message.reply(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("maqola"))
+async def group_cmd_maqola(message: Message, command: CommandObject, bot: Bot):
+    bot_info = await bot.get_me()
+    topic = (command.args or "").strip()
+
+    if not topic:
+        text = (
+            "⚠️ <b>Mavzu kiritilmadi!</b>\n\n"
+            "Format: <code>/maqola Mavzu nomi</code>\n"
+            "<i>Masalan:</i> <code>/maqola Bulutli texnologiyalarning xavfsizlik masalalari</code>"
+        )
+        await message.reply(text, parse_mode="HTML")
+        return
+
+    text = (
+        f"📄 <b>«{topic}» mavzusida Ilmiy Maqola / Tezis (OAK)</b>\n\n"
+        f"UO'K indeksi, 3 tilda annotatsiya va IMRAD strukturasi bilan tayyor ilmiy ish.\n\n"
+        f"👇 <i>Maqolani botda yuklab olish:</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="📑 Maqolani Botda Olish", url=f"https://t.me/{bot_info.username}?start=create_article")],
+        ]
+    )
+    await message.reply(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("parafraz"))
+async def group_cmd_parafraz(message: Message, command: CommandObject, bot: Bot):
+    bot_info = await bot.get_me()
+    text = (
+        "🔍 <b>Antiplagiat & AI Matnni Insoniylashtirish (Parafraz)</b>\n\n"
+        "Matningizni Antiplagiatdan 90%+ o'tadigan holatga keltirish uchun botga o'ting va matningizni yuboring:"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔍 Antiplagiat Botga O'tish", url=f"https://t.me/{bot_info.username}?start=paraphrase")],
+        ]
+    )
+    await message.reply(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("help"))
+async def group_cmd_help(message: Message, bot: Bot):
+    bot_info = await bot.get_me()
+    text = (
+        f"ℹ️ <b>@{bot_info.username} guruhda qanday ishlaydi?</b>\n\n"
+        f"Guruh a'zolari quyidagi buyruqlar orqali tezda ilmiy va ta'limiy materiallar olishi mumkin:\n\n"
+        f"• <code>/slayd [mavzu]</code> — Slayd (PowerPoint) tayyorlash\n"
+        f"• <code>/mustaqil [mavzu]</code> — Word yoki Daftarga yozilgan Mustaqil ish\n"
+        f"• <code>/maqola [mavzu]</code> — Ilmiy maqola / Tezis (OAK)\n"
+        f"• <code>/parafraz</code> — Antiplagiat tekshiruv va qayta yozish\n\n"
+        f"Botga to'liq o'tish uchun quyidagi tugmani bosing:"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Botni Ochish", url=f"https://t.me/{bot_info.username}")],
+        ]
+    )
+    await message.reply(text, parse_mode="HTML", reply_markup=kb)
 
 
 # ------------------ MENING TAQDIMOTLARIM (FEATURE 6) ------------------
@@ -3906,24 +4731,32 @@ async def cb_themes_gallery(callback: CallbackQuery):
 async def cb_help(callback: CallbackQuery):
     await safe_callback_answer(callback)
     text = (
-        "ℹ️ <b>Slayd va Mustaqil Ish Yaratuvchi Bot (@SlaydchiAkabot) Haqida</b>\n\n"
-        "Ushbu bot eng ilg'or sun'iy intellekt texnologiyalari asosida ishlaydi.\n\n"
-        "<b>Imkoniyatlar:</b>\n"
-        "• 🚀 16:9 Widescreen zamonaviy taqdimotlar (20 tagacha slayd)\n"
-        "• 📝 <b>Mustaqil Ish (Word / .docx):</b> OTM davlat andozasidagi to'liq ilmiy ish (Titul, Mundarija, Boblar, Xulosa, Adabiyotlar)\n"
+        "ℹ️ <b>Slayd, Mustaqil Ish va Maqola Yaratuvchi Bot (@SlaydchiAkabot)</b>\n\n"
+        "Ushbu bot eng ilg'or sun'iy intellekt (Gemini Pro) texnologiyalari asosida ishlaydi.\n\n"
+        "<b>Asosiy Imkoniyatlar:</b>\n"
+        "• 🚀 <b>16:9 Widescreen Taqdimotlar:</b> 20 tagacha professional slayd, haqiqiy diagrammalar va spiker so'zlash nutqi\n"
+        "• 📝 <b>Mustaqil Ish (2 xil format):</b>\n"
+        "   1) 📄 <i>Rasmiy OTM Word (.docx)</i> — Titul, Mundarija, Boblar, Xulosa va Adabiyotlar\n"
+        "   2) ✍️ <i>Daftarga qo'lda yozilgan (PDF)</i> — 12/24-varaqli daftar, qizil hoshiya, ko'k siyoh va husnixat shrifti\n"
+        "• 📄 <b>Ilmiy Maqola / Tezis (OAK Standarti):</b> UO'K indeksi, 3 tildagi annotatsiya va kalit so'zlar, IMRAD strukturasi\n"
+        "• 🔍 <b>Antiplagiat & Parafraz (AI Humanizer):</b> Matndagi AI izlarini tozalash va 90%+ o'ziga xoslikka erishish\n"
         "• 🎯 <b>AI Himoya Simulyatori:</b> Taqdimot himoyasi oldidan komissiya savollari va tayyorgarlik testi\n"
-        "• 🎙 Matn, Ovozli xabar, 📸 Kitob/Konspekt rasmi yoki 📄 PDF/Word fayllardan material yaratish\n"
-        "• 📊 <b>Haqiqiy PowerPoint diagrammalari va grafiklari</b>\n"
-        "• 🎤 <b>Har bir slayd uchun tayyor Spiker nutqi (so'zlash matni)</b>\n"
+        "• 👥 <b>Telegram Guruh Rejimi:</b> Botni guruhga qo'shib <code>/slayd</code>, <code>/mustaqil</code>, <code>/maqola</code>, <code>/parafraz</code> buyruqlari bilan ishlatish\n"
+        "• 🎙 Matn, Ovozli xabar, 📸 Kitob/Konspekt rasmi yoki 📄 PDF/Word fayllardan to'g'ridan-to'g'ri yaratish\n"
         "• 🌐 3 ta tilda yaratish (O'zbekcha, Ruscha, Inglizcha)\n"
-        "• 🎁 Do'stlarni taklif qilib qo'shimcha bepul limitlar olish\n"
-        "• 🎟 Maxsus promokodlardan foydalanish\n\n"
-        "Boshlash uchun pastdagi tugmalardan birini bosing:"
+        "• 🎁 Har kuni bepul bonuslar va do'stlarni taklif qilish orqali bepul limitlar\n\n"
+        "Boshlash uchun pastdagi bo'limlardan birini tanlang:"
     )
     kb = InlineKeyboardMarkup(
         inline_keyboard=[
-            [InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide")],
-            [InlineKeyboardButton(text="📝 Mustaqil Ish Yaratish", callback_data="btn_create_essay")],
+            [
+                InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide"),
+                InlineKeyboardButton(text="📝 Mustaqil Ish", callback_data="btn_create_essay"),
+            ],
+            [
+                InlineKeyboardButton(text="📄 Ilmiy Maqola", callback_data="btn_create_article"),
+                InlineKeyboardButton(text="🔍 Antiplagiat", callback_data="btn_paraphrase"),
+            ],
             [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
         ]
     )

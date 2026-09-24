@@ -27,6 +27,12 @@ exclude = {
     "run_24_7.bat",
     "run_24_7.ps1",
     "test_generator.py",
+    "test_new_features.py",
+    "test_handwritten_full.pdf",
+    "test_handwritten_unit.pdf",
+    "test_handwritten_page1.png",
+    "test_paraphrase_out.docx",
+    "test_article_out.docx",
     "slayd_bot_fayllari",
     "slide_bot_deploy.zip",
 }
@@ -38,7 +44,7 @@ os.makedirs(staging_dir, exist_ok=True)
 
 print("Fayllar tekshirilmoqda va nusxalanmoqda...")
 for item in os.listdir(src_dir):
-    if item in exclude or item.endswith(".log") or item.endswith(".pyc"):
+    if item in exclude or item.endswith(".log") or item.endswith(".pyc") or item.startswith("test_"):
         continue
     s_item = os.path.join(src_dir, item)
     d_item = os.path.join(staging_dir, item)
