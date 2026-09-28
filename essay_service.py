@@ -455,32 +455,36 @@ def get_handwriting_font(size: int = 28):
 def create_handwritten_essay_pdf(
     essay: AcademicEssay,
     output_pdf_path: Optional[str] = None,
-    paper_type: str = "grid",
+    paper_type: str = "blank",
 ) -> tuple:
     """
-    AcademicEssay obyektidan xuddi 12/24 varoqli o'quvchi daftariga ko'k ruchkada
+    AcademicEssay obyektidan A4 formatdagi oq qog'ozga ko'k ruchka siyohida
     qo'lda yozilgandek ko'p sahifali PDF hujjat va 1-sahifa rasm previewini yaratadi.
     Qaytaradi: (pdf_path, preview_image_path)
     """
-    PAGE_W = 1600
-    PAGE_H = 2260
-    GRID_SIZE = 40
-    MARGIN_X = 240
-    MAX_X = PAGE_W - 120
-    MAX_Y = PAGE_H - 120
+    PAGE_W = 1654
+    PAGE_H = 2338
+    MARGIN_LEFT = 200
+    MARGIN_RIGHT = 120
+    MARGIN_TOP = 140
+    MARGIN_BOTTOM = 140
+    MAX_W = PAGE_W - MARGIN_LEFT - MARGIN_RIGHT
     START_Y = 160
+    MAX_Y = PAGE_H - MARGIN_BOTTOM
 
-    INK_COLOR = (18, 48, 138)
+    LINE_H = 56
+    HEADING_LINE_H = 68
+
+    INK_COLOR = (18, 52, 138)
     HEADING_COLOR = (12, 38, 120)
-    GRID_COLOR = (212, 226, 240)
-    MARGIN_LINE_COLOR = (225, 75, 75)
-    BG_COLOR = (253, 253, 250)
+    BG_COLOR = (255, 255, 255)
+    RULED_LINE_COLOR = (230, 235, 245)
 
-    font_text = get_handwriting_font(28)
-    font_bold = get_handwriting_font(30)
-    font_subhead = get_handwriting_font(34)
-    font_head = get_handwriting_font(40)
-    font_super = get_handwriting_font(46)
+    font_text = get_handwriting_font(30)
+    font_bold = get_handwriting_font(32)
+    font_subhead = get_handwriting_font(36)
+    font_head = get_handwriting_font(42)
+    font_title = get_handwriting_font(50)
 
     pages: List[Image.Image] = []
     current_page_idx = 1
@@ -490,76 +494,75 @@ def create_handwritten_essay_pdf(
         img = Image.new("RGB", (PAGE_W, PAGE_H), color=BG_COLOR)
         draw = ImageDraw.Draw(img)
 
-        # Katak yoki chiziqli daftar chizish
-        if paper_type == "grid":
-            for x in range(0, PAGE_W, GRID_SIZE):
-                draw.line([(x, 0), (x, PAGE_H)], fill=GRID_COLOR, width=1)
-            for y in range(0, PAGE_H, GRID_SIZE):
-                draw.line([(0, y), (PAGE_W, y)], fill=GRID_COLOR, width=1)
-        else:
-            for y in range(80, PAGE_H - 80, GRID_SIZE):
-                draw.line([(0, y), (PAGE_W, y)], fill=GRID_COLOR, width=1)
+        if paper_type == "lined":
+            for y_line in range(START_Y, PAGE_H - MARGIN_BOTTOM, LINE_H):
+                draw.line([(MARGIN_LEFT - 20, y_line + 38), (PAGE_W - MARGIN_RIGHT + 20, y_line + 38)], fill=RULED_LINE_COLOR, width=1)
 
-        # Qizil hoshiya chizig'i
-        draw.line([(MARGIN_X, 0), (MARGIN_X, PAGE_H)], fill=MARGIN_LINE_COLOR, width=2)
-
-        # Bet raqami
         if not is_cover:
             p_text = f"- {current_page_idx} -"
-            draw.text((PAGE_W - 160, 48), p_text, fill=INK_COLOR, font=font_text)
+            w_p = draw.textlength(p_text, font=font_text)
+            draw.text(((PAGE_W - w_p) // 2, 70), p_text, fill=INK_COLOR, font=font_text)
             current_page_idx += 1
 
         pages.append(img)
         return img, draw
 
-    # 1. TITUL VARAG'I (Muqova)
+    # 1. TITUL VARAG'I (A4 Formatdagi Muqova)
     img_cover, draw_cover = new_page(is_cover=True)
     univ_text = essay.university or "O'ZBEKISTON RESPUBLIKASI OLIY TA'LIM MUASSASASI"
     ministry = "O'zbekiston Respublikasi Oliy ta'lim, fan va innovatsiyalar vazirligi"
 
-    y = 200
-    for line in textwrap.wrap(ministry, width=45):
-        w = draw_cover.textlength(line, font=font_bold)
-        draw_cover.text(((PAGE_W + MARGIN_X - w) // 2, y), line, fill=INK_COLOR, font=font_bold)
-        y += GRID_SIZE
+    y = 180
+    for line in textwrap.wrap(ministry, width=50):
+        w = draw_cover.textlength(line, font=font_text)
+        draw_cover.text(((PAGE_W - w) // 2, y), line, fill=INK_COLOR, font=font_text)
+        y += LINE_H
 
-    y += GRID_SIZE
-    for line in textwrap.wrap(univ_text, width=42):
+    y += 20
+    for line in textwrap.wrap(univ_text, width=44):
         w = draw_cover.textlength(line, font=font_bold)
-        draw_cover.text(((PAGE_W + MARGIN_X - w) // 2, y), line, fill=INK_COLOR, font=font_bold)
-        y += GRID_SIZE
+        draw_cover.text(((PAGE_W - w) // 2, y), line, fill=HEADING_COLOR, font=font_bold)
+        y += LINE_H
 
     if essay.faculty:
-        y += GRID_SIZE
-        for line in textwrap.wrap(essay.faculty, width=46):
+        y += 10
+        for line in textwrap.wrap(essay.faculty, width=48):
             w = draw_cover.textlength(line, font=font_text)
-            draw_cover.text(((PAGE_W + MARGIN_X - w) // 2, y), line, fill=INK_COLOR, font=font_text)
-            y += GRID_SIZE
+            draw_cover.text(((PAGE_W - w) // 2, y), line, fill=INK_COLOR, font=font_text)
+            y += LINE_H
 
-    y = 760
+    y = 820
     title_label = "MUSTAQIL ISH"
-    w = draw_cover.textlength(title_label, font=font_super)
-    draw_cover.text(((PAGE_W + MARGIN_X - w) // 2, y), title_label, fill=HEADING_COLOR, font=font_super)
+    w = draw_cover.textlength(title_label, font=font_title)
+    draw_cover.text(((PAGE_W - w) // 2, y), title_label, fill=HEADING_COLOR, font=font_title)
 
-    y += GRID_SIZE * 2
+    y += int(LINE_H * 1.8)
     topic_header = f"Mavzu: «{essay.topic}»"
     for line in textwrap.wrap(topic_header, width=38):
         w = draw_cover.textlength(line, font=font_head)
-        draw_cover.text(((PAGE_W + MARGIN_X - w) // 2, y), line, fill=INK_COLOR, font=font_head)
-        y += GRID_SIZE * 1.5
+        draw_cover.text(((PAGE_W - w) // 2, y), line, fill=INK_COLOR, font=font_head)
+        y += HEADING_LINE_H
 
     y = 1520
-    auth_lines = [
-        f"Bajardi: {essay.author_name or 'Talaba'}",
-        f"Qabul qildi: {essay.teacher_name or 'Ilmiy rahbar'}",
-    ]
-    for line in auth_lines:
-        draw_cover.text((PAGE_W - 650, y), line, fill=INK_COLOR, font=font_bold)
-        y += GRID_SIZE * 1.5
+    auth_x = PAGE_W - 680
+    draw_cover.text((auth_x, y), "Bajardi:", fill=INK_COLOR, font=font_text)
+    y += LINE_H
+    author_str = essay.author_name or "Talaba"
+    for line in textwrap.wrap(author_str, width=28):
+        draw_cover.text((auth_x + 30, y), line, fill=HEADING_COLOR, font=font_bold)
+        y += LINE_H
+
+    y += 20
+    draw_cover.text((auth_x, y), "Qabul qildi:", fill=INK_COLOR, font=font_text)
+    y += LINE_H
+    teacher_str = essay.teacher_name or "Ilmiy rahbar / O'qituvchi"
+    for line in textwrap.wrap(teacher_str, width=28):
+        draw_cover.text((auth_x + 30, y), line, fill=HEADING_COLOR, font=font_bold)
+        y += LINE_H
 
     city_year = f"{essay.city or 'Toshkent'} – {essay.year or '2026'}"
     w = draw_cover.textlength(city_year, font=font_bold)
-    draw_cover.text(((PAGE_W + MARGIN_X - w) // 2, PAGE_H - 200), city_year, fill=INK_COLOR, font=font_bold)
+    draw_cover.text(((PAGE_W - w) // 2, PAGE_H - 180), city_year, fill=INK_COLOR, font=font_bold)
 
     current_img, current_draw = new_page(is_cover=False)
     current_y = START_Y
@@ -572,12 +575,12 @@ def create_handwritten_essay_pdf(
 
         if center:
             w = current_draw.textlength(text, font=font)
-            x = (PAGE_W + MARGIN_X - w) // 2
+            x = (PAGE_W - w) // 2
         else:
-            x = MARGIN_X + (60 if indent else 25)
+            x = MARGIN_LEFT + (75 if indent else 0)
 
         current_draw.text((x, current_y), text, fill=color, font=font)
-        current_y += GRID_SIZE
+        current_y += LINE_H
 
     def add_paragraph(text, font=font_text, color=INK_COLOR):
         nonlocal current_y
@@ -589,9 +592,8 @@ def create_handwritten_essay_pdf(
         is_first = True
         for w in words:
             test_line = " ".join(line_words + [w])
-            indent_px = 60 if is_first else 25
-            max_width_px = MAX_X - MARGIN_X - indent_px
-            if current_draw.textlength(test_line, font=font) <= max_width_px:
+            indent_px = 75 if is_first else 0
+            if current_draw.textlength(test_line, font=font) + indent_px <= MAX_W:
                 line_words.append(w)
             else:
                 add_line(" ".join(line_words), font=font, color=color, indent=is_first)
@@ -600,36 +602,44 @@ def create_handwritten_essay_pdf(
         if line_words:
             add_line(" ".join(line_words), font=font, color=color, indent=is_first)
 
-        current_y += GRID_SIZE // 2
+        current_y += int(LINE_H * 0.4)
 
     def add_heading(text):
         nonlocal current_y
-        current_y += GRID_SIZE
+        if current_y > MAX_Y - 200:
+            current_img, current_draw = new_page(is_cover=False)
+            current_y = START_Y
+        else:
+            current_y += int(LINE_H * 0.6)
         add_line(text, font=font_head, color=HEADING_COLOR, center=True)
-        current_y += GRID_SIZE // 2
+        current_y += int(LINE_H * 0.6)
 
     def add_subheading(text):
         nonlocal current_y
-        current_y += GRID_SIZE // 2
+        if current_y > MAX_Y - 150:
+            current_img, current_draw = new_page(is_cover=False)
+            current_y = START_Y
+        else:
+            current_y += int(LINE_H * 0.4)
         add_line(text, font=font_subhead, color=HEADING_COLOR, indent=False)
-        current_y += GRID_SIZE // 4
+        current_y += int(LINE_H * 0.3)
 
     # 2. MUNDARIJA
     add_heading("MUNDARIJA")
     add_line("KIRISH .......................................................................... 3-bet", font=font_bold)
-    current_y += GRID_SIZE // 2
+    current_y += int(LINE_H * 0.3)
 
     p_counter = 4
     for ch in essay.chapters:
         add_line(f"{ch.title} .......................................................... {p_counter}-bet", font=font_bold)
-        current_y += GRID_SIZE // 4
+        current_y += int(LINE_H * 0.2)
         for sec in ch.sections:
             add_line(f"   {sec.title} ................................................. {p_counter}-bet", font=font_text)
         p_counter += 2
-        current_y += GRID_SIZE // 2
+        current_y += int(LINE_H * 0.3)
 
     add_line(f"XULOSA VA TAVSIYALAR .......................................... {p_counter}-bet", font=font_bold)
-    current_y += GRID_SIZE // 4
+    current_y += int(LINE_H * 0.2)
     add_line(f"FOYDALANILGAN ADABIYOTLAR ................................. {p_counter + 1}-bet", font=font_bold)
 
     # 3. KIRISH
@@ -676,7 +686,7 @@ def create_handwritten_essay_pdf(
     safe_topic = safe_topic[:30].replace(" ", "_") or "Mustaqil_Ish"
 
     if not output_pdf_path:
-        output_pdf_path = os.path.join(config.GENERATED_DIR, f"{safe_topic}_Qolda_Yozilgan.pdf")
+        output_pdf_path = os.path.join(config.GENERATED_DIR, f"{safe_topic}_A4_Qolda_Yozilgan.pdf")
 
     preview_img_path = os.path.join(config.GENERATED_DIR, f"{safe_topic}_preview_p1.png")
     if pages:
@@ -688,6 +698,6 @@ def create_handwritten_essay_pdf(
             resolution=150.0,
         )
 
-    logger.info(f"Qo'lda yozilgan Mustaqil Ish PDF yaratildi: {output_pdf_path} ({len(pages)} sahifa)")
+    logger.info(f"A4 formatda qo'lda yozilgan Mustaqil Ish PDF yaratildi: {output_pdf_path} ({len(pages)} sahifa)")
     return output_pdf_path, preview_img_path
 

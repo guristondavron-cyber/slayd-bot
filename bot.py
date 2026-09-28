@@ -317,7 +317,7 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     buttons = [
         [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
         [
-            InlineKeyboardButton(text="📝 Mustaqil Ish (Word & Daftar)", callback_data="btn_create_essay"),
+            InlineKeyboardButton(text="📝 Mustaqil Ish (Word & Qo'lda A4)", callback_data="btn_create_essay"),
             InlineKeyboardButton(text="📄 Ilmiy Maqola / Tezis", callback_data="btn_create_article"),
         ],
         [
@@ -439,7 +439,7 @@ def essay_format_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
             [InlineKeyboardButton(text="🎓 1. Rasmiy OTM standarti (Word .docx)", callback_data="essay_fmt_word")],
-            [InlineKeyboardButton(text="✍️ 2. Daftarga qo'lda yozilgan (PDF)", callback_data="essay_fmt_handwritten")],
+            [InlineKeyboardButton(text="✍️ 2. A4 formatda qo'lda yozilgan (PDF)", callback_data="essay_fmt_handwritten")],
             [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
         ]
     )
@@ -678,8 +678,8 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
 
             await state.set_state(EssayCreationState.waiting_for_topic)
             text = (
-                "📝 <b>Mustaqil Ish (Word & Daftarga yozilgan) Yaratish</b>\n\n"
-                "🎓 <i>OTM andozasidagi rasmiy Word (.docx) yoki Daftarga qo'lda yozilgandek ko'rinuvchi (PDF) mustaqil ish tayyorlash:</i>\n"
+                "📝 <b>Mustaqil Ish (Word & Qo'lda yozilgan A4) Yaratish</b>\n\n"
+                "🎓 <i>OTM andozasidagi rasmiy Word (.docx) yoki A4 toza oq qog'ozga qo'lda yozilgandek ko'rinuvchi (PDF) mustaqil ish tayyorlash:</i>\n"
                 "• 🏛 <b>Titul varag'i:</b> OTM, Kafedra, Mavzu, Muallif\n"
                 "• 📑 <b>Mundarija (Reja)</b> va 🎯 <b>Kirish</b>\n"
                 "• 📚 <b>I & II Asosiy Boblar</b> va 💡 <b>Xulosa</b>\n"
@@ -767,7 +767,7 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
         f"Assalomu alaykum, <b>{first_name}</b>{vip_badge}!\n\n"
         f"Men <b>Professional Slayd, Mustaqil Ish va Ilmiy Maqola Yaratuvchi (@SlaydchiAkabot)</b> botman.\n"
         f"Siz menga ixtiyoriy <b>mavzu</b>, <b>PDF/Word hujjati</b>, <b>rasm/konspekt</b> yoki <b>ovozli xabar</b> yuboring — "
-        f"men 16:9 PowerPoint taqdimot, OTM andozasidagi yoki <b>Daftarga qo'lda yozilgan Mustaqil ish</b>, OAK talabidagi <b>Ilmiy maqola</b> yoki matningizni <b>Antiplagiatdan</b> o'tkazib beraman.\n\n"
+        f"men 16:9 PowerPoint taqdimot, OTM andozasidagi yoki <b>A4 formatda qo'lda yozilgan Mustaqil ish</b>, OAK talabidagi <b>Ilmiy maqola</b> yoki matningizni <b>Antiplagiatdan</b> o'tkazib beraman.\n\n"
         f"📊 <b>Sizning balansingiz:</b> <b>{balance_text}</b>\n\n"
         f"Boshlash uchun quyidagi tugmani bosing:"
     )
@@ -2941,9 +2941,10 @@ async def cb_essay_language_chosen(callback: CallbackQuery, state: FSMContext, b
         "🎓 <b>1. Rasmiy OTM standarti (Word .docx):</b>\n"
         "• Times New Roman 14pt, 1.5 interval, 3.0 sm chap hoshiya\n"
         "• Titul, mundarija, boblar va adabiyotlar ro'yxati bilan kafedraga topshirish uchun.\n\n"
-        "✍️ <b>2. Daftarga qo'lda yozilgan (PDF & Rasm):</b>\n"
-        "• 12/24 varoqli o'quvchi daftari foni (katak daftar), qizil hoshiya chizig'i va ko'k ruchka siyohi\n"
-        "• «Faqat daftarga qo'lda yozib topshirasan» deydigan talabchan ustozlar uchun tayyor yechim!"
+        "✍️ <b>2. A4 formatda qo'lda yozilgan (PDF & Rasm):</b>\n"
+        "• A4 toza oq qog'ozga ko'k ruchka siyohida husnixat bilan qo'lda yozilgan ko'rinish\n"
+        "• Titul, mundarija, kirish, asosiy boblar va xulosa to'liq A4 varaqlariga tushiriladi\n"
+        "• «Faqat A4 qog'ozga qo'lda yozib topshirasan» deydigan talabchan ustozlar uchun tayyor yechim!"
     )
     await safe_edit_or_answer(callback.message, text, reply_markup=essay_format_keyboard())
 
@@ -3039,9 +3040,9 @@ async def execute_essay_generation(
         )
 
         if format_type == "handwritten":
-            # Daftarga qo'lda yozilgan variant (PDF va preview rasm)
-            pdf_path = os.path.join(config.GENERATED_DIR, f"{safe_topic}_{user_id}_Qolda_Yozilgan.pdf")
-            out_pdf, preview_img = await asyncio.to_thread(create_handwritten_essay_pdf, essay_obj, pdf_path, "grid")
+            # A4 formatda qo'lda yozilgan variant (PDF va preview rasm)
+            pdf_path = os.path.join(config.GENERATED_DIR, f"{safe_topic}_{user_id}_A4_Qolda_Yozilgan.pdf")
+            out_pdf, preview_img = await asyncio.to_thread(create_handwritten_essay_pdf, essay_obj, pdf_path, "blank")
 
             database.use_slide(user_id, is_admin(user_id))
 
@@ -3053,18 +3054,18 @@ async def execute_essay_generation(
             if preview_img and os.path.exists(preview_img):
                 await target_msg.answer_photo(
                     photo=FSInputFile(preview_img),
-                    caption="✍️ <b>Daftarga qo'lda yozilgan variant namunasi (1-bet)</b>",
+                    caption="✍️ <b>A4 formatda qo'lda yozilgan variant namunasi (Titul varag'i)</b>",
                     parse_mode="HTML",
                 )
 
             caption = (
-                f"✍️ <b>Daftarga qo'lda yozilgan Mustaqil Ish tayyorlandi!</b>\n\n"
+                f"✍️ <b>A4 formatda qo'lda yozilgan Mustaqil Ish tayyorlandi!</b>\n\n"
                 f"📌 <b>Mavzu:</b> <i>«{topic}»</i>\n"
                 f"🏛 <b>OTM:</b> {university}\n"
                 f"👤 <b>Muallif:</b> {author_name}\n"
-                f"📑 <b>Format:</b> 12/24 varoqli katak daftari (PDF)\n"
-                f"🖋 <b>Ko'rinish:</b> Qizil hoshiya va ko'k ruchka siyohi bilan qo'lda yozilgan\n\n"
-                f"✨ <i>Buni to'g'ridan-to'g'ri chop etib yoki ustozingizga jo'natishingiz mumkin!</i>"
+                f"📑 <b>Format:</b> A4 toza oq qog'ozga qo'lda yozilgan PDF\n"
+                f"🖋 <b>Ko'rinish:</b> Chiroyli husnixat va ko'k ruchka siyohida A4 varaqlariga tushirilgan\n\n"
+                f"✨ <i>Buni to'g'ridan-to'g'ri chop etib yoki papkaga tikib topshirishingiz mumkin!</i>"
             )
             pdf_file = FSInputFile(out_pdf, filename=os.path.basename(out_pdf))
             await target_msg.answer_document(
@@ -3633,7 +3634,7 @@ async def group_cmd_start(message: Message, bot: Bot):
         f"Men <b>@{bot_info.username}</b> — professional taqdimotlar, mustaqil ishlar va ilmiy maqolalar tayyorlovchi sun'iy intellekt botiman.\n\n"
         f"📌 <b>Guruhda ishlatish uchun qulay buyruqlar:</b>\n"
         f"• <code>/slayd Mavzu</code> — Slayd (PowerPoint) taqdimot yaratish\n"
-        f"• <code>/mustaqil Mavzu</code> — Mustaqil ish (Word & Qo'lda yozilgan PDF)\n"
+        f"• <code>/mustaqil Mavzu</code> — Mustaqil ish (Word & A4 Qo'lda yozilgan PDF)\n"
         f"• <code>/maqola Mavzu</code> — OAK talabidagi ilmiy maqola / tezis\n"
         f"• <code>/parafraz</code> — Antiplagiatdan o'tuvchi tahrir\n\n"
         f"💡 <i>Istalgan mavzuni yozing va tugmani bosing:</i>"
@@ -3690,7 +3691,7 @@ async def group_cmd_mustaqil(message: Message, command: CommandObject, bot: Bot)
 
     text = (
         f"📝 <b>«{topic}» mavzusida Mustaqil Ish</b>\n\n"
-        f"OTM standarti bo'yicha Word (.docx) yoki Daftarga qo'lda yozilgan (PDF) variantni olishingiz mumkin.\n\n"
+        f"OTM standarti bo'yicha Word (.docx) yoki A4 formatda qo'lda yozilgan (PDF) variantni olishingiz mumkin.\n\n"
         f"👇 <i>Hujjatni shakllantirish uchun botga o'ting:</i>"
     )
     kb = InlineKeyboardMarkup(
@@ -3750,7 +3751,7 @@ async def group_cmd_help(message: Message, bot: Bot):
         f"ℹ️ <b>@{bot_info.username} guruhda qanday ishlaydi?</b>\n\n"
         f"Guruh a'zolari quyidagi buyruqlar orqali tezda ilmiy va ta'limiy materiallar olishi mumkin:\n\n"
         f"• <code>/slayd [mavzu]</code> — Slayd (PowerPoint) tayyorlash\n"
-        f"• <code>/mustaqil [mavzu]</code> — Word yoki Daftarga yozilgan Mustaqil ish\n"
+        f"• <code>/mustaqil [mavzu]</code> — Word yoki A4 formatda qo'lda yozilgan Mustaqil ish\n"
         f"• <code>/maqola [mavzu]</code> — Ilmiy maqola / Tezis (OAK)\n"
         f"• <code>/parafraz</code> — Antiplagiat tekshiruv va qayta yozish\n\n"
         f"Botga to'liq o'tish uchun quyidagi tugmani bosing:"
@@ -4737,7 +4738,7 @@ async def cb_help(callback: CallbackQuery):
         "• 🚀 <b>16:9 Widescreen Taqdimotlar:</b> 20 tagacha professional slayd, haqiqiy diagrammalar va spiker so'zlash nutqi\n"
         "• 📝 <b>Mustaqil Ish (2 xil format):</b>\n"
         "   1) 📄 <i>Rasmiy OTM Word (.docx)</i> — Titul, Mundarija, Boblar, Xulosa va Adabiyotlar\n"
-        "   2) ✍️ <i>Daftarga qo'lda yozilgan (PDF)</i> — 12/24-varaqli daftar, qizil hoshiya, ko'k siyoh va husnixat shrifti\n"
+        "   2) ✍️ <i>A4 formatda qo'lda yozilgan (PDF)</i> — A4 toza oq qog'ozga ko'k ruchka siyohida husnixat bilan qo'lda yozilgan ko'rinish\n"
         "• 📄 <b>Ilmiy Maqola / Tezis (OAK Standarti):</b> UO'K indeksi, 3 tildagi annotatsiya va kalit so'zlar, IMRAD strukturasi\n"
         "• 🔍 <b>Antiplagiat & Parafraz (AI Humanizer):</b> Matndagi AI izlarini tozalash va 90%+ o'ziga xoslikka erishish\n"
         "• 🎯 <b>AI Himoya Simulyatori:</b> Taqdimot himoyasi oldidan komissiya savollari va tayyorgarlik testi\n"
