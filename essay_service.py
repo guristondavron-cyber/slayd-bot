@@ -76,66 +76,71 @@ async def generate_academic_essay_content(
         year="2026",
         city="Toshkent",
         introduction=(
-            f"Zamonaviy taraqqiyot bosqichida «{topic}» mavzusi dolzarb ilmiy va amaliy ahamiyat kasb etmoqda. "
-            "Ushbu sohada olib borilayotgan islohotlar va yangi yondashuvlar sohani yanada takomillashtirishga zamin yaratadi. "
-            f"Tadqiqotning asosiy maqsadi — «{topic}» jarayonlarini chuqur tahlil qilish, uning o'ziga xos xususiyatlarini ochib berish "
-            "hamda mavjud muammolarni bartaraf etish bo'yicha ilmiy-amaliy takliflar ishlab chiqishdan iborat.\n\n"
-            "Tadqiqot vazifalari etib mavzuning nazariy-metodologik asoslarini o'rganish, sohadagi ilg'or xorijiy tajribani tahlil qilish "
-            "va amaliyotda qo'llash istiqbollarini belgilash belgilangan."
+            f"Universitetda «{topic}» mavzusini o'rganishga kirishganimizda, bu yo'nalish nafaqat darsliklardagi qoidalar, balki kundalik hayotimiz va amaliy sohalar uchun ham qanchalik zarurligiga amin bo'ldik. "
+            "Har qanday sohada bo'lgani kabi, bu yerda ham o'ziga xos qiyinchiliklar va hal qilinishi kerak bo'lgan masalalar yetarlicha topiladi.\n\n"
+            f"Ushbu mustaqil ishni yozishdan asosiy maqsadim — «{topic}» qanday ishlashini, uning amaliy foydasini oddiy va tushunarli misollar yordamida tahlil qilishdir. "
+            "Ish davomida nazariy tushunchalarni ko'rib chiqish bilan birga, amaliyotda uchraydigan kamchiliklarni bartaraf etish bo'yicha shaxsiy fikr va takliflarimni bayon etishga harakat qildim."
         ),
         chapters=[
             Chapter(
-                title=f"I BOB. «{topic.upper()}»NING NAZARIY-METODOLOGIK ASOSLARI",
+                title=f"I BOB. «{topic.upper()}»NING ASOSIY TUSHUNCHALARI VA MOHIYATI",
                 sections=[
                     ChapterSection(
-                        title=f"1.1. «{topic}» tushunchasining mohiyati va evolyutsiyasi",
+                        title=f"1.1. «{topic}» nima va u qanday rivojlanib kelgan?",
                         content=(
-                            f"«{topic}» zamonaviy fanning eng muhim yo'nalishlaridan biri bo'lib, uning rivojlanishi bevosita global o'zgarishlar bilan bog'liq. "
-                            "Nazariy adabiyotlar tahlili shuni ko'rsatadiki, ushbu tushuncha turli davrlarda olimlar tomonidan turlicha talqin qilingan. "
-                            "Mazkur bo'limda ushbu yo'nalishning paydo bo'lishi, asosiy tamoyillari va bugungi kundagi ahamiyati batafsil bayon etiladi."
+                            f"Agar «{topic}» tushunchasiga chuqurroq qaraydigan bo'lsak, uning ildizlari ancha yillik tajribaga borib taqalishini ko'ramiz. "
+                            "Kitoblarda bu haqda turli xil murakkab ta'riflar keltirilgan bo'lsa-da, oddiy qilib aytganda, bu tizim inson faoliyatini yengillashtirish va aniqlikni ta'minlashga xizmat qiladi.\n\n"
+                            "Tadqiqotchilarning ishlarini solishtirib o'rganganda, vaqt o'tishi bilan dastlabki oddiy usullardan zamonaviy kompleks yondashuvlarga o'tilgani yaqqol ko'rinadi. "
+                            "Bu esa sohaning to'xtab qolmasdan, yangi texnologiyalar bilan birga ilgarilab borayotganini isbotlaydi."
                         ),
                     ),
                     ChapterSection(
-                        title=f"1.2. Mavzuning xalqaro va milliy darajadagi ahamiyati",
+                        title="1.2. Amaliyotdagi o'rni va hayotiy ahamiyati",
                         content=(
-                            "Jahon tajribasi shuni ko'rsatadiki, ushbu sohani to'g'ri tashkil etish va boshqarish umumiy samaradorlikni 30-40% ga oshirish imkonini beradi. "
-                            "O'zbekistonda ham ushbu sohaga davlat darajasida katta e'tibor qaratilmoqda va maxsus strategiyalar qabul qilinmoqda."
+                            "Nazariya qanchalik mukammal bo'lmasin, uning qiymati amaliyotda qay darajada foyda berishi bilan o'lchanadi. "
+                            "Misol uchun, ushbu tizim to'g'ri yo'lga qo'yilsa, ishdagi chalkashliklar keskin kamayadi va vaqt tejaladi.\n\n"
+                            "O'zimizning mahalliy tajribani kuzatadigan bo'lsak, ko'plab korxona va muassasalarda ushbu yondashuv asta-sekin tatbiq etilmoqda. "
+                            "Albatta, hali qilinadigan ishlar ko'p, lekin boshlangan qadamlar kelajak uchun mustahkam zamin yaratmoqda."
                         ),
                     ),
                 ],
             ),
             Chapter(
-                title=f"II BOB. «{topic.upper()}»NING AMALIY TAHLILI VA RIVOJLANISH ISTIQBOLLARI",
+                title=f"II BOB. MAVJUD MUAMMOLAR VA ULARNI HAL ETISH YO'LLARI",
                 sections=[
                     ChapterSection(
-                        title=f"2.1. Amaliy holat tahlili va mavjud muammolar",
+                        title="2.1. Bugungi kunda duch kelinayotgan asosiy kamchiliklar",
                         content=(
-                            "Ushbu bo'limda sohaning amaliy holati chuqur tahlil qilinadi. Statistik ma'lumotlar va empirik kuzatuvlar asosida "
-                            "mavjud tizimning kuchli va zaif tomonlari, xatarlar va tizimli to'siqlar aniqlanadi."
+                            "Har qanday yangi jarayon singari, bu sohada ham ma'lum kamchiliklar ko'zga tashlanadi. "
+                            "Eng asosiy to'siqlardan biri — malakali kadrlar yetishmovchiligi va texnik ta'minotning har doim ham talab darajasida emasligidir.\n\n"
+                            "Bundan tashqari, ayrim joylarda eski usullardan voz kechishga nisbatan ikkilanish mavjud. "
+                            "Buni bartaraf etmasdan turib, yuqori natijalarga erishish mushkul."
                         ),
                     ),
                     ChapterSection(
-                        title=f"2.2. Sohoni rivojlantirish va takomillashtirish yo'llari",
+                        title="2.2. Samaradorlikni oshirish bo'yicha amaliy takliflar",
                         content=(
-                            "Tahlillar natijasida sohani rivojlantirishning asosiy ustuvor yo'nalishlari ishlab chiqildi. "
-                            "Innovatsion texnologiyalarni tatbiq etish, kadrlar salohiyatini oshirish va boshqaruv mexanizmlarini optimallashtirish shular jumlasidandir."
+                            "Vaziyatni o'rganish jarayonida bir nechta amaliy choralarni ko'rish zarurligi ma'lum bo'ldi. "
+                            "Avvalo, jarayonlarni to'liq raqamlashtirish va xodimlarni yangi tizim bilan ishlashga o'rgatish lozim.\n\n"
+                            "Shuningdek, tizimning ishlashini muntazam nazorat qilib boruvchi monitoring mexanizmini joriy qilish yaxshi samara beradi. "
+                            "Bu orqali yuzaga kelishi mumkin bo'lgan xatoliklarni oldindan payqash va ularni vaqtida tuzatish imkoni tug'iladi."
                         ),
                     ),
                 ],
             ),
         ],
         conclusion=(
-            f"Olib borilgan tadqiqot asosida quyidagi xulosalarga kelindi: Birinchidan, «{topic}» zamonaviy sharoitda strategik ahamiyatga ega. "
-            "Ikkinchidan, mavjud muammolarni bartaraf etish uchun kompleks chora-tadbirlar talab etiladi. "
-            "Uchinchidan, ishlab chiqilgan amaliy takliflar soha samaradorligini sezilarli darajada oshirishga xizmat qiladi."
+            f"Mavzu ustida ishlash davomida «{topic}» zamonaviy dunyoda qanchalik muhim o'rin tutishini tushunib yetdim. "
+            "Faqat nazariyani yodlab olish yetarli emas, balki uni amalda qanday qo'llashni bilish kerak.\n\n"
+            "Tahlillarim shuni ko'rsatadiki, sohadagi muammolarni bartaraf etish uchun, birinchi navbatda, zamonaviy bilimlarni egallash va yangi texnologiyalardan qo'rqmasdan foydalanish talab etiladi. "
+            "Mustaqil ishda bayon etilgan takliflar kelgusida ushbu yo'nalishni yanada chuqurroq o'rganish uchun foydali asos bo'ladi deb hisoblayman."
         ),
         references=[
-            "O'zbekiston Respublikasi Prezidentining tegishli sohani rivojlantirish to'g'risidagi Farmon va Qarorlari.",
             "Karimov A.X. Zamonaviy boshqaruv va tahlil asoslari. Darslik. — Toshkent: Iqtisodiyot, 2023. — 280 b.",
             "Abdullayev R.M. Innovatsion taraqqiyot strategiyasi. — Toshkent: Fan va texnologiya, 2024. — 310 b.",
             "Smith J., Johnson M. Modern Trends and Strategic Innovations. — London: Academic Press, 2023.",
-            "O'zbekiston Respublikasi Statistika agentligi rasmiy ma'lumotlari (stat.uz), 2025-2026 yy.",
-            "World Bank Global Economic Reports and Research Papers, 2024.",
+            "O'zbekiston Respublikasi Statistika agentligi ma'lumotlari (stat.uz), 2025-2026 yy.",
+            "Sohaga oid me'yoriy-huquqiy hujjatlar va o'quv-uslubiy qo'llanmalar to'plami, 2024.",
         ],
     )
 
@@ -152,32 +157,51 @@ async def generate_academic_essay_content(
     seen = set()
     models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
 
-    prompt = f"""Siz O'zbekiston OTMlari (Universitet va Institutlar) talablari bo'yicha ilmiy ishlar, referatlar va mustaqil ishlarni yuqori darajada yozuvchi professional ilmiy mutaxassis va professorsiz.
+    prompt = f"""Sen — mustaqil ish tayyorlayotgan universitet talabasisan. Matningni sun'iy intellekt emas, aynan inson (talaba) o'z qo'li bilan yozgandek bo'lishi shart.
 
 MAVZU: «{topic}»
 TALABA ISMI: {author_str}
 OTM NOMI: {univ_str}
 TIL: {language} (o'zbekcha / ruscha / inglizcha)
 
-VAZIFA:
-Ushbu mavzu bo'yicha to'liq, chuqur, akademik va rasmiy MUSTAQIL ISH (Referat) matnini tuzing.
-Hujjat tarkibida quyidagilar bo'lishi shart:
+QUYIDAGI QOIDALARGA QAT'IY AMAL QIL:
+1. Qoliplardan qoch: "Xulosa qilib aytganda", "Shuni alohida ta'kidlash lozimki", "Bugungi shiddat bilan rivojlanayotgan davrda", "Ushbu sohada olib borilayotgan islohotlar", "Birinchidan, ikkinchidan, uchinchidan" kabi sun'iy intellektga xos shablon iboralarni umuman ishlatma.
+2. Jumlalar ritmini o'zgartir: Ba'zi gaplar uzun va tushuntiruvchi, ba'zilari esa qisqa va lo'nda bo'lsin. Hammasi bir xil grammatik qolipda ketma-ket kelmasin.
+3. Jonli tushuntirish: Fikrni faqat quruq kitobiy qoidalardan ko'ra, tushunarli amaliy misollar bilan izohla (masalan: "buni amalda ko'radigan bo'lsak...", "oddiy qilib aytganda...", "hayotda buni qanday ko'rishimiz mumkin?").
+4. Talaba tili: Matn to'liq savodli bo'lsin, lekin haddan tashqari balandparvoz yoki ensiklopedik soxta ilmiy terminlar bilan to'ldirib yuborma.
+5. Tabiiy o'tishlar: Har bir fikrni faqat raqamli ro'yxat (1., 2., 3.) qilib bermasdan, matn ichida mantiqiy abzaslar orqali bir-biriga ula.
+
+HUJJAT STRUKTURASI:
 1. `topic`: Mavzu nomi.
 2. `university`: Universitet/Institut nomi.
 3. `faculty`: Fakultet va yo'nalish nomi.
 4. `author_name`: Talabaning ismi-sharifi.
-5. `teacher_name`: Ilmiy rahbar / O'qituvchi lavozimi va ismi (masalan: 'Dotsent, Iqtisod fanlari nomzodi').
+5. `teacher_name`: Ilmiy rahbar / O'qituvchi lavozimi va ismi.
 6. `year`: 2026
 7. `city`: Toshkent (yoki mos shahar)
-8. `introduction`: Kamida 3-4 ta to'liq va boy ilmiy abzasdan iborat KIRISH (Mavzuning dolzarbligi, maqsadi, vazifalari, tadqiqot usullari).
+8. `introduction`: Kamida 3-4 ta to'liq, samimiy va jonli talaba tilidagi abzasdan iborat KIRISH (Nima uchun bu mavzuni tanlagani, amaliy qiziqishi, nimalarni aniqlamoqchiligi).
 9. `chapters`: Kamida 2 ta asosiy BOB:
-   - I Bob: Nazariy-metodologik asoslar (tarkibida 2 ta to'liq kichik bo'lim, har bir bo'limda kamida 3-4 ta ilmiy tahliliy abzas).
-   - II Bob: Amaliy tahlil, mavjud muammolar va rivojlanish istiqbollari (tarkibida 2 ta to'liq bo'lim, har birida faktlar, raqamlar, tahliliy abzaslar).
-10. `conclusion`: Kamida 3-4 ta abzasdan iborat XULOSA VA AMALIY TAVSIYALAR (aniq 1, 2, 3 tartibdagi amaliy xulosalar bilan).
-11. `references`: 6 dan 8 tagacha bo'lgan rasmiy darsliklar, ilmiy maqolalar, qonunchilik manbalari va internet resurslari.
+   - I Bob: Nazariy tushunchalar va mohiyati (tarkibida 2 ta kichik bo'lim, har bir bo'limda kamida 3-4 ta mazmunli, jonli va tushunarli abzas).
+   - II Bob: Amaliy holat, kamchiliklar va takliflar (tarkibida 2 ta kichik bo'lim, har birida amaliy hayotiy tahlillar, misollar va jonli xulosalar).
+10. `conclusion`: Kamida 3-4 ta abzasdan iborat XULOSA (qoliplarsiz, talabaning shaxsiy xulosalari va kelajakdagi takliflari bilan).
+11. `references`: 6 dan 8 tagacha bo'lgan rasmiy darsliklar, ilmiy maqolalar va ishonchli manbalar ro'yxati.
 
-Talab: Matn qisqa yoki yuzaki bo'lmasin! Haqiqiy talaba topshirsa domla qoyil qoladigan, to'liq, ilmiy jumlalardan iborat bo'lsin.
-Javobni FAQAT AcademicEssay JSON formatida qaytaring."""
+Javobni FAQAT AcademicEssay JSON formatida qaytar."""
+
+    system_prompt = (
+        "Sen — mustaqil ish tayyorlayotgan universitet talabasisan. Matningni sun'iy intellekt emas, "
+        "aynan inson (talaba) o'z qo'li bilan yozgandek bo'lishi shart.\n\n"
+        "Qoidalarga qat'iy amal qil:\n"
+        "1. Qoliplardan qoch: 'Xulosa qilib aytganda', 'Shuni alohida ta'kidlash lozimki', "
+        "'Bugungi shiddat bilan rivojlanayotgan davrda', 'Ushbu sohada olib borilayotgan islohotlar', "
+        "'Birinchidan, ikkinchidan, uchinchidan' kabi sun'iy intellektga xos shablon iboralarni umuman ishlatma.\n"
+        "2. Jumlalar ritmini o'zgartir: Ba'zi gaplar uzun va tushuntiruvchi, ba'zilari esa qisqa va lo'nda bo'lsin. "
+        "Hammasi bir xil grammatik qolipda ketma-ket kelmasin.\n"
+        "3. Jonli tushuntirish: Fikrni faqat quruq kitobiy qoidalardan ko'ra, tushunarli amaliy misollar bilan izohla "
+        "(masalan: 'buni amalda ko'radigan bo'lsak...', 'oddiy qilib aytganda...', 'hayotda buni qanday ko'rishimiz mumkin?').\n"
+        "4. Talaba tili: Matn to'liq savodli bo'lsin, lekin haddan tashqari balandparvoz yoki ensiklopedik soxta ilmiy terminlar bilan to'ldirib yuborma.\n"
+        "5. Tabiiy o'tishlar: Har bir fikrni faqat raqamli ro'yxat (1., 2., 3.) qilib bermasdan, matn ichida mantiqiy abzaslar orqali bir-biriga ula."
+    )
 
     for model_name in models_to_try:
         try:
@@ -186,9 +210,10 @@ Javobni FAQAT AcademicEssay JSON formatida qaytaring."""
                 model=model_name,
                 contents=prompt,
                 config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
                     response_mime_type="application/json",
                     response_schema=AcademicEssay,
-                    temperature=0.6,
+                    temperature=0.7,
                 ),
             )
             raw = response.text or ""

@@ -331,10 +331,13 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
         ],
         [
             InlineKeyboardButton(text="👤 Profil & Referal", callback_data="btn_profile"),
-            InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus"),
+            InlineKeyboardButton(text="🏆 Reyting (TOP-10)", callback_data="btn_leaderboard"),
         ],
         [
+            InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus"),
             InlineKeyboardButton(text="🎟 Promokod", callback_data="btn_enter_promo"),
+        ],
+        [
             InlineKeyboardButton(text="🎨 Mavzular", callback_data="btn_themes"),
             InlineKeyboardButton(text="ℹ️ Yordam", callback_data="btn_help"),
         ],
@@ -588,12 +591,19 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
 
     if rewarded_ref:
         try:
+            ref_stats = database.get_user_referral_stats(rewarded_ref)
+            rank_txt = f"#{ref_stats['rank_total']}" if ref_stats['rank_total'] != "-" else "-"
             await bot.send_message(
                 chat_id=rewarded_ref,
                 text=(
                     f"🎉 <b>Ajoyib yangilik!</b>\n\n"
                     f"Sizning referal havolangiz orqali yangi do'stingiz (<b>{first_name}</b>) botga qo'shildi!\n"
-                    f"🎁 Hisobingizga <b>+{reward_amount} ta bepul slayd</b> taqdim etildi."
+                    f"🎁 Hisobingizga <b>+{reward_amount} ta bepul slayd</b> taqdim etildi.\n\n"
+                    f"⚡️ <b>Sizning referal faolligingiz:</b>\n"
+                    f"  ┌ 📅 Bugun: <b>{ref_stats['daily_referrals']} ta do'st</b>\n"
+                    f"  ├ 👑 Jami do'stlar: <b>{ref_stats['total_referrals']} ta</b>\n"
+                    f"  └ 🏆 Reytingdagi o'rningiz: <b>{rank_txt}</b>\n\n"
+                    f"<i>Reyting jadvalini ko'rish uchun /reyting buyrug'ini yuboring.</i>"
                 ),
                 parse_mode="HTML",
             )
@@ -763,6 +773,16 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
             await message.answer(text, parse_mode="HTML", reply_markup=paraphrase_cancel_keyboard())
             return
 
+        elif arg in ("leaderboard", "reyting", "top"):
+            bot_info = await bot.get_me()
+            lb_text, lb_kb = format_neon_leaderboard(
+                period="daily",
+                user_id=user_id,
+                bot_username=bot_info.username,
+            )
+            await message.answer(lb_text, parse_mode="HTML", reply_markup=lb_kb, disable_web_page_preview=True)
+            return
+
     text = (
         f"Assalomu alaykum, <b>{first_name}</b>{vip_badge}!\n\n"
         f"Men <b>Professional Slayd, Mustaqil Ish va Ilmiy Maqola Yaratuvchi (@SlaydchiAkabot)</b> botman.\n"
@@ -882,7 +902,7 @@ async def cb_cancel(callback: CallbackQuery, state: FSMContext):
     await safe_edit_or_answer(callback.message, "Amal bekor qilindi.", reply_markup=main_menu_keyboard(callback.from_user.id))
 
 
-# ------------------ PROFIL VA REFERAL ------------------
+# ------------------ PROFIL VA REFERAL (NEON USLUBI) ------------------
 @router.callback_query(F.data == "btn_profile")
 async def cb_profile(callback: CallbackQuery, bot: Bot):
     await safe_callback_answer(callback)
@@ -891,16 +911,39 @@ async def cb_profile(callback: CallbackQuery, bot: Bot):
     if not user:
         user = {"slides_left": 3, "referrals_count": 0, "is_vip": 0}
 
+    stats = database.get_user_referral_stats(user_id)
     bot_info = await bot.get_me()
     ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
-    reward = database.get_setting("referral_reward", "2")
+    reward = stats.get("reward_per_ref", 2)
     status_text = "💎 VIP Cheksiz" if user.get("is_vip") else f"<b>{user['slides_left']} ta</b>"
+    rank_total_str = f"#{stats['rank_total']}" if stats["rank_total"] != "-" else "<i>Ro'yxatda yo'q</i>"
+
+    # User level badge
+    total_refs = stats["total_referrals"]
+    if total_refs >= 50:
+        badge_name = "🌌 Cyber Legend (50+)"
+    elif total_refs >= 20:
+        badge_name = "👑 Cyber Grandmaster (20+)"
+    elif total_refs >= 10:
+        badge_name = "💎 Neon Master (10+)"
+    elif total_refs >= 5:
+        badge_name = "💠 Cyber Scout (5+)"
+    elif total_refs >= 1:
+        badge_name = "⚡️ Active Member (1+)"
+    else:
+        badge_name = "🌱 Yangi A'zo (0)"
 
     text = (
         f"👤 <b>Sizning Profilingiz</b>\n\n"
         f"🆔 <b>ID:</b> <code>{user_id}</code>\n"
-        f"💎 <b>Status:</b> {status_text}\n"
-        f"👥 <b>Taklif qilingan do'stlar:</b> <b>{user['referrals_count']} ta</b>\n\n"
+        f"💎 <b>Balans / Status:</b> {status_text}\n"
+        f"📊 <b>Neon Maqomingiz:</b> <code>{badge_name}</code>\n"
+        f"🏆 <b>Umumiy reytingdagi o'rningiz:</b> <b>{rank_total_str}</b>\n\n"
+        f"⚡️ <b>Referal Faolligingiz (Neon Statistikasi):</b>\n"
+        f"  ┌ 📅 <b>Bugun taklif qilingan:</b> <code>{stats['daily_referrals']} ta</code> (#{stats['rank_daily']})\n"
+        f"  ├ 🗓 <b>Bu hafta taklif qilingan:</b> <code>{stats['weekly_referrals']} ta</code> (#{stats['rank_weekly']})\n"
+        f"  ├ 👑 <b>Jami taklif qilingan:</b> <b>{stats['total_referrals']} ta</b>\n"
+        f"  └ 🎁 <b>Ishlangan bonus:</b> <code>+{stats['bonus_earned']} ta slayd</code>\n\n"
         f"🎁 <b>Referal Dasturi:</b>\n"
         f"Do'stlaringizni taklif qiling va har bir do'stingiz uchun <b>+{reward} ta bepul slayd</b> oling!\n\n"
         f"🔗 <b>Sizning taklif havolangiz:</b>\n"
@@ -912,8 +955,9 @@ async def cb_profile(callback: CallbackQuery, bot: Bot):
             [
                 InlineKeyboardButton(
                     text="↗️ Do'stlarga ulashish",
-                    url=f"https://t.me/share/url?url={ref_link}&text=Sun'iy%20intellektda%20bepul%20slaydlar%20yasang!",
-                )
+                    url=f"https://t.me/share/url?url={ref_link}&text=Sun'iy%20intellektda%20bepul%20slaydlar%20va%20mustaqil%20ishlar%20yasang!",
+                ),
+                InlineKeyboardButton(text="🏆 Reyting (TOP-10)", callback_data="btn_leaderboard"),
             ],
             [
                 InlineKeyboardButton(text="🎟 Promokod kiritish", callback_data="btn_enter_promo"),
@@ -923,6 +967,201 @@ async def cb_profile(callback: CallbackQuery, bot: Bot):
         ]
     )
     await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
+
+
+# ------------------ NEON LEADERBOARD (KUNLIK / HAFTALIK / UMUMIY REYTING) ------------------
+def format_neon_leaderboard(
+    period: str,
+    user_id: int,
+    bot_username: str,
+) -> Tuple[str, InlineKeyboardMarkup]:
+    """
+    Neon uslubidagi kunlik, haftalik yoki umumiy reyting xabari va tugmalarini shakllantiradi.
+    period: 'daily' | 'weekly' | 'total'
+    """
+    stats = database.get_user_referral_stats(user_id)
+    top_users = database.get_top_referrers(period=period, limit=10)
+    ref_link = f"https://t.me/{bot_username}?start=ref_{user_id}"
+
+    # Period indicators
+    if period == "daily":
+        period_title = "KUNLIK REYTING (BUGUN)"
+        period_tab = "▶️ <b>[ ⚡️ BUGUN ]</b> ┃ 🗓 HAFTALIK ┃ 👑 UMUMIY"
+        period_desc = "🔥 <i>Bugun eng ko'p do'st taklif qilgan TOP-10 peshqadamlar:</i>"
+        user_rank_val = stats["rank_daily"]
+        user_period_count = stats["daily_referrals"]
+    elif period == "weekly":
+        period_title = "HAFTALIK REYTING (7 KUN)"
+        period_tab = "⚡️ BUGUN ┃ ▶️ <b>[ 🗓 BU HAFTA ]</b> ┃ 👑 UMUMIY"
+        period_desc = "🌟 <i>Oxirgi 7 kunda eng ko'p do'st taklif qilgan TOP-10 peshqadamlar:</i>"
+        user_rank_val = stats["rank_weekly"]
+        user_period_count = stats["weekly_referrals"]
+    else:
+        period = "total"
+        period_title = "UMUMIY REYTING (BARCHA VAQTLAR)"
+        period_tab = "⚡️ BUGUN ┃ 🗓 HAFTALIK ┃ ▶️ <b>[ 👑 BARCHA VAQTLAR ]</b>"
+        period_desc = "👑 <i>Barcha vaqtlardagi eng faol TOP-10 afsonaviy peshqadamlar:</i>"
+        user_rank_val = stats["rank_total"]
+        user_period_count = stats["total_referrals"]
+
+    # Rank badge and level for user
+    total_refs = stats["total_referrals"]
+    if total_refs >= 50:
+        badge_name = "🌌 Cyber Legend (50+)"
+        next_goal = total_refs + 10
+    elif total_refs >= 20:
+        badge_name = "👑 Cyber Grandmaster (20+)"
+        next_goal = 50
+    elif total_refs >= 10:
+        badge_name = "💎 Neon Master (10+)"
+        next_goal = 20
+    elif total_refs >= 5:
+        badge_name = "💠 Cyber Scout (5+)"
+        next_goal = 10
+    elif total_refs >= 1:
+        badge_name = "⚡️ Active Member (1+)"
+        next_goal = 5
+    else:
+        badge_name = "🌱 Yangi A'zo (0)"
+        next_goal = 3
+
+    # Progress bar to next milestone
+    progress_pct = min(100, int((total_refs / next_goal) * 100)) if next_goal > 0 else 100
+    filled = max(0, min(10, progress_pct // 10))
+    progress_bar = f"<code>{'▰' * filled}{'▱' * (10 - filled)}</code> <b>{progress_pct}%</b> ({total_refs}/{next_goal} ta)"
+
+    # Build Top-10 list
+    top_lines = []
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    level_tags = {1: "👑 <i>Grandmaster</i>", 2: "⚡️ <i>Master</i>", 3: "💎 <i>Diamond</i>"}
+
+    if top_users:
+        for idx, u in enumerate(top_users, start=1):
+            name = (u.get("first_name") or "Foydalanuvchi").strip()
+            name = (
+                name.replace("&", "&amp;")
+                .replace("<", "&lt;")
+                .replace(">", "&gt;")
+            )
+            uname = u.get("username")
+            u_tag = f" <code>(@{uname})</code>" if uname else ""
+            c = u.get("ref_count", 0)
+
+            if idx in medals:
+                medal = medals[idx]
+                ltag = level_tags.get(idx, "")
+                top_lines.append(
+                    f"{medal} <b>{idx}-o'rin:</b> <b>{name}</b>{u_tag}\n"
+                    f"   └ ⚡️ <b>{c} ta do'st</b> ┃ {ltag}"
+                )
+            else:
+                top_lines.append(f"🔹 <b>{idx}. {name}:</b> <code>{c} ta do'st</code>{u_tag}")
+    else:
+        top_lines.append(
+            "⚡️ <i>Ushbu davrda hali hech kim do'st taklif qilmadi.\n"
+            "Birinchi bo'lib do'stlaringizni taklif qiling va 1-o'ringa chiqing!</i> 🚀"
+        )
+
+    leaderboard_content = "\n\n".join(top_lines) if (top_users and len(top_users) <= 3) else "\n".join(top_lines)
+    user_rank_str = f"<b>#{user_rank_val}</b>" if user_rank_val != "-" else "<i>Ro'yxatda yo'q</i>"
+
+    text = (
+        f"⚡️ <b>NEON LEADERBOARD | {period_title}</b> ⚡️\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{period_tab}\n\n"
+        f"{period_desc}\n\n"
+        f"{leaderboard_content}\n\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>SIZNING KO'RSATKICHLARINGIZ (ID: <code>{user_id}</code>):</b>\n"
+        f"┌ ⚡️ <b>Bugun taklif qilingan:</b> <code>{stats['daily_referrals']} ta</code> (#{stats['rank_daily']})\n"
+        f"├ 🗓 <b>Bu hafta taklif qilingan:</b> <code>{stats['weekly_referrals']} ta</code> (#{stats['rank_weekly']})\n"
+        f"├ 👑 <b>Jami taklif qilingan:</b> <b>{stats['total_referrals']} ta</b> (#{stats['rank_total']})\n"
+        f"└ 🎁 <b>Ishlangan jami bonus:</b> <code>+{stats['bonus_earned']} ta slayd</code>\n\n"
+        f"🏆 <b>Ushbu reytingdagi o'rningiz:</b> {user_rank_str} (<code>{user_period_count} ta</code>)\n"
+        f"📊 <b>Neon Reyting Maqomi:</b> <code>{badge_name}</code>\n"
+        f"🎯 <b>Keyingi darajagacha:</b> {progress_bar}\n\n"
+        f"🔗 <b>Sizning taklif havolangiz:</b>\n"
+        f"<code>{ref_link}</code>\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"💡 <i>Har bir do'stingiz uchun <b>+{stats['reward_per_ref']} ta bepul slayd</b> qo'shiladi!</i>"
+    )
+
+    d_btn = "⚡️ Bugun (Faol)" if period == "daily" else "⚡️ Bugun"
+    w_btn = "🗓 Bu hafta (Faol)" if period == "weekly" else "🗓 Bu hafta"
+    t_btn = "👑 Umumiy (Faol)" if period == "total" else "👑 Umumiy"
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text=d_btn, callback_data="lb_period_daily"),
+                InlineKeyboardButton(text=w_btn, callback_data="lb_period_weekly"),
+                InlineKeyboardButton(text=t_btn, callback_data="lb_period_total"),
+            ],
+            [
+                InlineKeyboardButton(
+                    text="↗️ Do'stlarga ulashish (+2 slayd)",
+                    url=f"https://t.me/share/url?url={ref_link}&text=Sun'iy%20intellektda%20bepul%20slayd%20va%20mustaqil%20ishlar%20yasang!",
+                )
+            ],
+            [
+                InlineKeyboardButton(text="🔄 Yangilash", callback_data=f"lb_refresh_{period}"),
+                InlineKeyboardButton(text="👤 Profilim", callback_data="btn_profile"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel"),
+            ],
+        ]
+    )
+    return text, kb
+
+
+@router.callback_query(F.data == "btn_leaderboard")
+async def cb_leaderboard(callback: CallbackQuery, bot: Bot):
+    await safe_callback_answer(callback)
+    bot_info = await bot.get_me()
+    text, kb = format_neon_leaderboard(
+        period="daily",
+        user_id=callback.from_user.id,
+        bot_username=bot_info.username,
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("lb_period_"))
+async def cb_leaderboard_period(callback: CallbackQuery, bot: Bot):
+    await safe_callback_answer(callback)
+    period = callback.data.replace("lb_period_", "")
+    bot_info = await bot.get_me()
+    text, kb = format_neon_leaderboard(
+        period=period,
+        user_id=callback.from_user.id,
+        bot_username=bot_info.username,
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
+
+
+@router.callback_query(F.data.startswith("lb_refresh_"))
+async def cb_leaderboard_refresh(callback: CallbackQuery, bot: Bot):
+    await safe_callback_answer(callback, "🔄 Reyting yangilandi!")
+    period = callback.data.replace("lb_refresh_", "")
+    bot_info = await bot.get_me()
+    text, kb = format_neon_leaderboard(
+        period=period,
+        user_id=callback.from_user.id,
+        bot_username=bot_info.username,
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
+
+
+@router.message(Command("reyting", "top", "leaderboard"))
+async def cmd_leaderboard(message: Message, bot: Bot):
+    bot_info = await bot.get_me()
+    text, kb = format_neon_leaderboard(
+        period="daily",
+        user_id=message.from_user.id,
+        bot_username=bot_info.username,
+    )
+    await message.answer(text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
 
 
 # ------------------ PROMOKOD ISHLATISH ------------------
@@ -3744,6 +3983,40 @@ async def group_cmd_parafraz(message: Message, command: CommandObject, bot: Bot)
     await message.reply(text, parse_mode="HTML", reply_markup=kb)
 
 
+@router.message(F.chat.type.in_({"group", "supergroup"}), Command("reyting", "top"))
+async def group_cmd_leaderboard(message: Message, bot: Bot):
+    bot_info = await bot.get_me()
+    top_users = database.get_top_referrers(period="daily", limit=5)
+
+    lines = []
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    if top_users:
+        for idx, u in enumerate(top_users, start=1):
+            name = (u.get("first_name") or "Foydalanuvchi").strip()
+            name = name.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+            c = u.get("ref_count", 0)
+            medal = medals.get(idx, f"<b>{idx}.</b>")
+            lines.append(f"{medal} {name} — <b>{c} ta do'st</b>")
+    else:
+        lines.append("⚡️ <i>Bugun hali hech kim do'st taklif qilmadi. Birinchi bo'ling!</i>")
+
+    board_text = "\n".join(lines)
+    text = (
+        f"⚡️ <b>BUGUNGI REFERALLAR REYTINGI (TOP-5)</b> ⚡️\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"{board_text}\n"
+        f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"Do'stlaringizni taklif qilib, bepul slaydlar oling va reytingga chiqing!\n\n"
+        f"👇 <i>To'liq reyting (Haftalik / Umumiy) va shaxsiy natijangizni ko'rish:</i>"
+    )
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🏆 To'liq Reytingni Ko'rish", url=f"https://t.me/{bot_info.username}?start=leaderboard")],
+        ]
+    )
+    await message.reply(text, parse_mode="HTML", reply_markup=kb)
+
+
 @router.message(F.chat.type.in_({"group", "supergroup"}), Command("help"))
 async def group_cmd_help(message: Message, bot: Bot):
     bot_info = await bot.get_me()
@@ -3753,7 +4026,8 @@ async def group_cmd_help(message: Message, bot: Bot):
         f"• <code>/slayd [mavzu]</code> — Slayd (PowerPoint) tayyorlash\n"
         f"• <code>/mustaqil [mavzu]</code> — Word yoki A4 formatda qo'lda yozilgan Mustaqil ish\n"
         f"• <code>/maqola [mavzu]</code> — Ilmiy maqola / Tezis (OAK)\n"
-        f"• <code>/parafraz</code> — Antiplagiat tekshiruv va qayta yozish\n\n"
+        f"• <code>/parafraz</code> — Antiplagiat tekshiruv va qayta yozish\n"
+        f"• <code>/reyting</code> — Kunlik, haftalik va umumiy referallar reytingi\n\n"
         f"Botga to'liq o'tish uchun quyidagi tugmani bosing:"
     )
     kb = InlineKeyboardMarkup(

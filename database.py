@@ -125,6 +125,28 @@ def init_db():
         """)
 
         cursor.execute("""
+        CREATE TABLE IF NOT EXISTS referral_events (
+            id SERIAL PRIMARY KEY,
+            referrer_id BIGINT NOT NULL,
+            referred_id BIGINT NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_re_referrer ON referral_events (referrer_id, created_at)")
+            cursor.execute("""
+            INSERT INTO referral_events (referrer_id, referred_id, created_at)
+            SELECT referred_by, user_id, created_at FROM users 
+            WHERE referred_by IS NOT NULL
+            ON CONFLICT (referred_id) DO NOTHING;
+            """)
+            conn.commit()
+        except Exception:
+            if hasattr(conn.conn, "rollback"):
+                conn.conn.rollback()
+
+        cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings (
             key TEXT PRIMARY KEY,
             value TEXT
@@ -278,6 +300,25 @@ def init_db():
             updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS referral_events (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            referrer_id INTEGER NOT NULL,
+            referred_id INTEGER NOT NULL UNIQUE,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
+        try:
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_re_referrer ON referral_events (referrer_id, created_at)")
+            cursor.execute("""
+            INSERT OR IGNORE INTO referral_events (referrer_id, referred_id, created_at)
+            SELECT referred_by, user_id, created_at FROM users 
+            WHERE referred_by IS NOT NULL;
+            """)
+        except Exception:
+            pass
 
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS settings (
@@ -539,6 +580,19 @@ def get_or_create_user(
             """,
             (bonus, valid_referrer),
         )
+        try:
+            if IS_POSTGRES:
+                cursor.execute(
+                    "INSERT INTO referral_events (referrer_id, referred_id) VALUES (?, ?) ON CONFLICT (referred_id) DO NOTHING",
+                    (valid_referrer, user_id),
+                )
+            else:
+                cursor.execute(
+                    "INSERT OR IGNORE INTO referral_events (referrer_id, referred_id) VALUES (?, ?)",
+                    (valid_referrer, user_id),
+                )
+        except Exception:
+            pass
         rewarded_referrer_id = valid_referrer
         reward_amount = bonus
 
@@ -1050,3 +1104,206 @@ def complete_payment_order(order_id: int, external_id: Optional[str] = None) -> 
     conn.commit()
     conn.close()
     return True, user_id, slides
+
+
+def get_user_referral_stats(user_id: int) -> Dict[str, Any]:
+    """Foydalanuvchining shaxsiy referal statistikasi va reyting o'rnini hisoblaydi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    # 1. Total count
+    cursor.execute("SELECT referrals_count, slides_left FROM users WHERE user_id = ?", (user_id,))
+    u_row = cursor.fetchone()
+    total_refs = u_row["referrals_count"] if u_row and "referrals_count" in u_row.keys() else 0
+    slides_left = u_row["slides_left"] if u_row and "slides_left" in u_row.keys() else 0
+
+    # 2. Daily count (bugungi)
+    if IS_POSTGRES:
+        cursor.execute(
+            "SELECT COUNT(*) as cnt FROM referral_events WHERE referrer_id = ? AND created_at >= CURRENT_DATE",
+            (user_id,),
+        )
+    else:
+        cursor.execute(
+            "SELECT COUNT(*) as cnt FROM referral_events WHERE referrer_id = ? AND DATE(created_at) = DATE('now')",
+            (user_id,),
+        )
+    d_row = cursor.fetchone()
+    daily_refs = d_row["cnt"] if d_row else 0
+
+    # 3. Weekly count (oxirgi 7 kun)
+    if IS_POSTGRES:
+        cursor.execute(
+            "SELECT COUNT(*) as cnt FROM referral_events WHERE referrer_id = ? AND created_at >= CURRENT_DATE - INTERVAL '7 days'",
+            (user_id,),
+        )
+    else:
+        cursor.execute(
+            "SELECT COUNT(*) as cnt FROM referral_events WHERE referrer_id = ? AND created_at >= datetime('now', '-7 days')",
+            (user_id,),
+        )
+    w_row = cursor.fetchone()
+    weekly_refs = w_row["cnt"] if w_row else 0
+
+    # 4. Total rank:
+    if total_refs > 0:
+        cursor.execute("SELECT COUNT(*) as cnt FROM users WHERE referrals_count > ?", (total_refs,))
+        row_rank = cursor.fetchone()
+        t_cnt = row_rank["cnt"] if row_rank else 0
+        rank_total = t_cnt + 1
+    else:
+        rank_total = "-"
+
+    # 5. Daily rank:
+    if daily_refs > 0:
+        if IS_POSTGRES:
+            cursor.execute(
+                """
+                SELECT COUNT(*) as cnt FROM (
+                    SELECT referrer_id FROM referral_events 
+                    WHERE created_at >= CURRENT_DATE 
+                    GROUP BY referrer_id HAVING COUNT(*) > ?
+                ) as sub
+                """,
+                (daily_refs,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT COUNT(*) as cnt FROM (
+                    SELECT referrer_id FROM referral_events 
+                    WHERE DATE(created_at) = DATE('now') 
+                    GROUP BY referrer_id HAVING COUNT(*) > ?
+                )
+                """,
+                (daily_refs,),
+            )
+        d_rank_res = cursor.fetchone()
+        rank_daily = (d_rank_res["cnt"] if d_rank_res else 0) + 1
+    else:
+        rank_daily = "-"
+
+    # 6. Weekly rank:
+    if weekly_refs > 0:
+        if IS_POSTGRES:
+            cursor.execute(
+                """
+                SELECT COUNT(*) as cnt FROM (
+                    SELECT referrer_id FROM referral_events 
+                    WHERE created_at >= CURRENT_DATE - INTERVAL '7 days' 
+                    GROUP BY referrer_id HAVING COUNT(*) > ?
+                ) as sub
+                """,
+                (weekly_refs,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT COUNT(*) as cnt FROM (
+                    SELECT referrer_id FROM referral_events 
+                    WHERE created_at >= datetime('now', '-7 days') 
+                    GROUP BY referrer_id HAVING COUNT(*) > ?
+                )
+                """,
+                (weekly_refs,),
+            )
+        w_rank_res = cursor.fetchone()
+        rank_weekly = (w_rank_res["cnt"] if w_rank_res else 0) + 1
+    else:
+        rank_weekly = "-"
+
+    reward_per_ref = int(get_setting("referral_reward", "2"))
+    bonus_earned = total_refs * reward_per_ref
+
+    conn.close()
+    return {
+        "total_referrals": total_refs,
+        "daily_referrals": daily_refs,
+        "weekly_referrals": weekly_refs,
+        "bonus_earned": bonus_earned,
+        "rank_total": rank_total,
+        "rank_daily": rank_daily,
+        "rank_weekly": rank_weekly,
+        "slides_left": slides_left,
+        "reward_per_ref": reward_per_ref,
+    }
+
+
+def get_top_referrers(period: str = "daily", limit: int = 10) -> List[Dict[str, Any]]:
+    """
+    Kunlik, haftalik yoki umumiy eng ko'p referal qo'shgan foydalanuvchilar ro'yxatini qaytaradi.
+    period: 'daily' | 'weekly' | 'total'
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if period == "daily":
+        if IS_POSTGRES:
+            cursor.execute(
+                """
+                SELECT r.referrer_id as user_id, COUNT(*) as ref_count, u.first_name, u.username
+                FROM referral_events r
+                LEFT JOIN users u ON r.referrer_id = u.user_id
+                WHERE r.created_at >= CURRENT_DATE
+                GROUP BY r.referrer_id, u.first_name, u.username
+                ORDER BY ref_count DESC, r.referrer_id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT r.referrer_id as user_id, COUNT(*) as ref_count, u.first_name, u.username
+                FROM referral_events r
+                LEFT JOIN users u ON r.referrer_id = u.user_id
+                WHERE DATE(r.created_at) = DATE('now')
+                GROUP BY r.referrer_id, u.first_name, u.username
+                ORDER BY ref_count DESC, r.referrer_id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+    elif period == "weekly":
+        if IS_POSTGRES:
+            cursor.execute(
+                """
+                SELECT r.referrer_id as user_id, COUNT(*) as ref_count, u.first_name, u.username
+                FROM referral_events r
+                LEFT JOIN users u ON r.referrer_id = u.user_id
+                WHERE r.created_at >= CURRENT_DATE - INTERVAL '7 days'
+                GROUP BY r.referrer_id, u.first_name, u.username
+                ORDER BY ref_count DESC, r.referrer_id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+        else:
+            cursor.execute(
+                """
+                SELECT r.referrer_id as user_id, COUNT(*) as ref_count, u.first_name, u.username
+                FROM referral_events r
+                LEFT JOIN users u ON r.referrer_id = u.user_id
+                WHERE r.created_at >= datetime('now', '-7 days')
+                GROUP BY r.referrer_id, u.first_name, u.username
+                ORDER BY ref_count DESC, r.referrer_id ASC
+                LIMIT ?
+                """,
+                (limit,),
+            )
+    else:  # total
+        cursor.execute(
+            """
+            SELECT user_id, referrals_count as ref_count, first_name, username
+            FROM users
+            WHERE referrals_count > 0
+            ORDER BY referrals_count DESC, created_at ASC
+            LIMIT ?
+            """,
+            (limit,),
+        )
+
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows] if rows else []
+
