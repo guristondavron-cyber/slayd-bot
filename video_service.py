@@ -124,7 +124,7 @@ async def generate_video_scenario(
     preset_scene_counts = {
         "30s": 3,
         "60s": 6,
-        "180s": 15,
+        "180s": 9,
     }
     target_scenes = preset_scene_counts.get(duration_preset, 6)
 
@@ -161,7 +161,7 @@ QAT'IY QOIDALAR:
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-2.0-flash",
+        "gemini-3.8-flash",
         "gemini-flash-latest",
         "gemini-3.5-flash",
     ]
@@ -211,40 +211,43 @@ async def generate_scene_voice(
     voice: str = "uz-UZ-MadinaNeural",
 ) -> float:
     """Edge-TTS orqali sahna audio nutqini yaratadi va davomiyligini qaytaradi."""
+    ffmpeg_exe = get_ffmpeg_binary()
     try:
         communicate = edge_tts.Communicate(narration, voice)
-        await communicate.save(output_path)
+        await asyncio.wait_for(communicate.save(output_path), timeout=12.0)
     except Exception as e:
-        logger.error(f"TTS error: {e}")
+        logger.warning(f"TTS error or timeout: {e}")
         # Bo'sh audio fallback yaratish
-        ffmpeg_exe = get_ffmpeg_binary()
-        subprocess.run([
-            ffmpeg_exe, "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
-            "-t", "5", "-c:a", "mp3", output_path
-        ], capture_output=True)
+        try:
+            subprocess.run([
+                ffmpeg_exe, "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+                "-t", "6", "-c:a", "mp3", output_path
+            ], capture_output=True, timeout=5, stdin=subprocess.DEVNULL)
+        except Exception:
+            pass
 
-    ffmpeg_exe = get_ffmpeg_binary()
     return get_audio_duration(output_path, ffmpeg_exe)
 
 
 def download_scene_image(visual_prompt: str, output_path: str, seed: int) -> bool:
     """
-    Pollinations AI va Picsum orqali yuqori sifatli 1280x720 fotorealistik kadr yuklab oladi.
+    Pollinations AI (Turbo) va Picsum orqali yuqori sifatli 1280x720 fotorealistik kadrni tezkor yuklab oladi.
     """
     clean_prompt = visual_prompt.strip()
     full_prompt = f"{clean_prompt}, cinematic, 8k, highly detailed, photorealistic, atmospheric lighting, 16:9 widescreen, no text, no watermark"
     encoded = urllib.parse.quote(full_prompt)
 
+    # Birinchi navbatda Turbo (1-2 soniyada tayyor bo'ladi)
     urls = [
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&model=flux&nologo=true&seed={seed}",
         f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&model=turbo&nologo=true&seed={seed}",
         f"https://picsum.photos/seed/{seed}/1280/720",
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&model=flux&nologo=true&seed={seed}",
     ]
 
     for url in urls:
         try:
-            resp = requests.get(url, timeout=18)
-            if resp.status_code == 200 and len(resp.content) > 10000:
+            resp = requests.get(url, timeout=7)
+            if resp.status_code == 200 and len(resp.content) > 5000:
                 with open(output_path, "wb") as f:
                     f.write(resp.content)
                 return True
@@ -264,21 +267,21 @@ def download_scene_image(visual_prompt: str, output_path: str, seed: int) -> boo
         return False
 
 
-def build_motion_filter(motion: str, duration: float, fps: int = 30) -> str:
+def build_motion_filter(motion: str, duration: float, fps: int = 25) -> str:
     """FFmpeg zoompan filtri orqali turli kinematik kamera harakatlarini hosil qiladi."""
-    total_frames = max(30, int(duration * fps))
+    total_frames = max(25, int(duration * fps))
 
     if motion == "zoom_out":
-        return f"scale=1280:720,zoompan=z='if(lte(zoom,1.0),1.22,max(1.001,zoom-0.0012))':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
+        return f"scale=1280:720,zoompan=z='if(lte(zoom,1.0),1.20,max(1.001,zoom-0.0012))':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
     elif motion == "pan_right":
-        return f"scale=1280:720,zoompan=z=1.14:d={total_frames}:x='(in/{total_frames})*(iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
+        return f"scale=1280:720,zoompan=z=1.12:d={total_frames}:x='(in/{total_frames})*(iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
     elif motion == "pan_left":
-        return f"scale=1280:720,zoompan=z=1.14:d={total_frames}:x='(1-(in/{total_frames}))*(iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
+        return f"scale=1280:720,zoompan=z=1.12:d={total_frames}:x='(1-(in/{total_frames}))*(iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
     elif motion == "tilt_up":
-        return f"scale=1280:720,zoompan=z=1.14:d={total_frames}:x='iw/2-(iw/zoom/2)':y='(1-(in/{total_frames}))*(ih-ih/zoom)':s=1280x720:fps={fps}"
+        return f"scale=1280:720,zoompan=z=1.12:d={total_frames}:x='iw/2-(iw/zoom/2)':y='(1-(in/{total_frames}))*(ih-ih/zoom)':s=1280x720:fps={fps}"
     else:
         # Default: zoom_in
-        return f"scale=1280:720,zoompan=z='min(zoom+0.0014,1.22)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
+        return f"scale=1280:720,zoompan=z='min(zoom+0.0014,1.20)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
 
 
 def render_single_scene_clip(
@@ -293,11 +296,11 @@ def render_single_scene_clip(
     """
     Bitta sahna uchun: rasm + kamera harakati + ovoz + subtitrlar + fade effektlarini
     bitta MP4 kadrga aylantiradi.
-    4 bosqichli xavfsiz fallback tizimiga ega (xatolik ehtimoli 0%).
+    Ultrafast tezlik va 4 bosqichli xavfsiz fallback tizimiga ega.
     """
     font_file = get_font_file()
-    motion_filter = build_motion_filter(motion, duration)
-    fade_duration = 0.4
+    motion_filter = build_motion_filter(motion, duration, fps=25)
+    fade_duration = 0.35
     fade_out_start = max(0.1, duration - fade_duration)
 
     # 1-URINISH: To'liq kinematika (harakat + subtitrlar + fade)
@@ -337,11 +340,11 @@ def render_single_scene_clip(
                 "-i", audio_path,
                 "-vf", vfilters1,
                 "-t", f"{duration:.2f}",
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "faster", "-crf", "22",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
                 "-c:a", "aac", "-b:a", "192k", "-shortest",
                 output_clip_path,
             ]
-            res1 = subprocess.run(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            res1 = subprocess.run(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, stdin=subprocess.DEVNULL)
             if res1.returncode == 0 and os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000:
                 return True
         except Exception as e:
@@ -362,11 +365,11 @@ def render_single_scene_clip(
             "-i", audio_path,
             "-vf", vfilters2,
             "-t", f"{duration:.2f}",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "faster", "-crf", "22",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
             "-c:a", "aac", "-b:a", "192k", "-shortest",
             output_clip_path,
         ]
-        res2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        res2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=18, stdin=subprocess.DEVNULL)
         if res2.returncode == 0 and os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000:
             return True
     except Exception as e:
@@ -381,11 +384,11 @@ def render_single_scene_clip(
             "-i", audio_path,
             "-vf", vfilters3,
             "-t", f"{duration:.2f}",
-            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "faster", "-crf", "22",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
             "-c:a", "aac", "-b:a", "192k", "-shortest",
             output_clip_path,
         ]
-        res3 = subprocess.run(cmd3, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        res3 = subprocess.run(cmd3, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15, stdin=subprocess.DEVNULL)
         if res3.returncode == 0 and os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000:
             return True
     except Exception as e:
@@ -397,12 +400,12 @@ def render_single_scene_clip(
             ffmpeg_exe, "-y",
             "-loop", "1", "-i", image_path,
             "-i", audio_path,
-            "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
+            "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p", "-preset", "ultrafast",
             "-c:a", "aac", "-b:a", "128k", "-shortest",
             "-t", f"{duration:.2f}",
             output_clip_path,
         ]
-        subprocess.run(cmd4, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        subprocess.run(cmd4, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=12, stdin=subprocess.DEVNULL)
         return os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 500
     except Exception as e:
         logger.error(f"Tier 4 render fatal: {e}")
@@ -435,7 +438,7 @@ def assemble_all_clips(
             "-c", "copy",
             temp_merged,
         ]
-        res = subprocess.run(cmd_concat, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        res = subprocess.run(cmd_concat, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25, stdin=subprocess.DEVNULL)
         if res.returncode != 0 or not os.path.exists(temp_merged):
             # Fallback re-encode
             cmd_reencode = [
@@ -443,10 +446,10 @@ def assemble_all_clips(
                 "-f", "concat",
                 "-safe", "0",
                 "-i", concat_txt_path,
-                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-c:a", "aac",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-c:a", "aac",
                 temp_merged,
             ]
-            subprocess.run(cmd_reencode, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            subprocess.run(cmd_reencode, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40, stdin=subprocess.DEVNULL)
 
         if not os.path.exists(temp_merged):
             return False
@@ -466,7 +469,7 @@ def assemble_all_clips(
             "-b:a", "192k",
             final_output_path,
         ]
-        res_final = subprocess.run(cmd_final, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        res_final = subprocess.run(cmd_final, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=35, stdin=subprocess.DEVNULL)
         if res_final.returncode == 0 and os.path.exists(final_output_path):
             return True
 
@@ -496,8 +499,8 @@ async def create_ai_video_pipeline(
     """
     To'liq AI video yaratish konveyeri:
     1. Ssenariy tuzish (Gemini)
-    2. Har bir sahnaning ovozi va rasmini olish
-    3. 10 soniyalik kadrlarga aylantirish
+    2. Har bir sahnaning ovozi va rasmini olish (parallel)
+    3. Kinematik kadrlarga aylantirish (ultrafast, fonda)
     4. Yaxlit MP4 film qilib montaj qilish
     """
     async with VIDEO_SEMAPHORE:
@@ -522,23 +525,24 @@ async def create_ai_video_pipeline(
                     await progress_callback(
                         scene_pct,
                         f"🎞 <b>2/4: Sahna {idx}/{total_scenes} tayyorlanmoqda:</b>\n"
-                        f"<i>«{scene.title}»</i> (Ovoz va AI kadrlar yaratilmoqda...)"
+                        f"<i>«{scene.title}»</i> (Ovoz va AI kadrlar olinmoqda...)"
                     )
 
                 img_path = os.path.join(temp_dir, f"scene_{idx}.jpg")
                 audio_path = os.path.join(temp_dir, f"scene_{idx}.mp3")
                 clip_path = os.path.join(temp_dir, f"scene_{idx}.mp4")
 
-                # Audio nutq
-                dur = await generate_scene_voice(scene.narration, audio_path, voice=voice)
+                # Audio nutq va vizual kadrni PARALLEL (bir vaqtda) yuklab olish
+                seed = random.randint(1000, 999999)
+                audio_task = generate_scene_voice(scene.narration, audio_path, voice=voice)
+                image_task = asyncio.to_thread(download_scene_image, scene.visual_prompt, img_path, seed)
+
+                dur, _ = await asyncio.gather(audio_task, image_task)
                 scene_duration = max(5.0, round(dur + 0.6, 2))
 
-                # Vizual kadr
-                seed = random.randint(1000, 999999)
-                download_scene_image(scene.visual_prompt, img_path, seed=seed)
-
-                # 10-soniyalik kinematik kadr render qilish
-                success = render_single_scene_clip(
+                # Kinematik kadrni fonda tezkor render qilish (event loop bloklanmaydi)
+                success = await asyncio.to_thread(
+                    render_single_scene_clip,
                     image_path=img_path,
                     audio_path=audio_path,
                     subtitle_text=scene.narration,
@@ -551,6 +555,13 @@ async def create_ai_video_pipeline(
                 if success and os.path.exists(clip_path):
                     clip_paths.append(clip_path)
 
+                if progress_callback:
+                    await progress_callback(
+                        min(82, scene_pct + 4),
+                        f"⚡️ <b>2/4: Sahna {idx}/{total_scenes} tayyor!</b>\n"
+                        f"<i>«{scene.title}»</i> (Keyingi kadrga o'tilmoqda...)"
+                    )
+
             if not clip_paths:
                 raise ValueError("Birorta ham sahna kadrlari generatsiya qilinmadi.")
 
@@ -562,7 +573,7 @@ async def create_ai_video_pipeline(
             final_filename = f"{safe_title}_{random.randint(1000, 9999)}.mp4"
             final_path = os.path.join(VIDEOS_DIR, final_filename)
 
-            assembled = assemble_all_clips(clip_paths, final_path, ffmpeg_exe)
+            assembled = await asyncio.to_thread(assemble_all_clips, clip_paths, final_path, ffmpeg_exe)
 
             if assembled and os.path.exists(final_path):
                 if progress_callback:

@@ -561,7 +561,7 @@ def video_duration_keyboard() -> InlineKeyboardMarkup:
                 InlineKeyboardButton(text="📱 1 daqiqa (Reels/Shorts - 6 sahna)", callback_data="v_dur_60s"),
             ],
             [
-                InlineKeyboardButton(text="🎬 3 daqiqa (To'liq film - 15 sahna)", callback_data="v_dur_180s"),
+                InlineKeyboardButton(text="🎬 3 daqiqa (To'liq film - 9 sahna)", callback_data="v_dur_180s"),
             ],
             [
                 InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel"),
@@ -4363,7 +4363,7 @@ async def process_video_topic(message: Message, state: FSMContext):
         "⏱ <b>Videoning davomiyligini tanlang:</b>\n\n"
         "• ⚡️ <b>30 soniya:</b> Tezkor rolik (3 ta bog'langan sahna)\n"
         "• 📱 <b>1 daqiqa:</b> Reels / Shorts / TikTok (6 ta sahna)\n"
-        "• 🎬 <b>3 daqiqa:</b> To'liq film / Hujjatli lavha (15 ta sahna)",
+        "• 🎬 <b>3 daqiqa:</b> To'liq film / Hujjatli lavha (9 ta sahna)",
         parse_mode="HTML",
         reply_markup=video_duration_keyboard(),
     )
@@ -4379,7 +4379,7 @@ async def cb_video_duration(callback: CallbackQuery, state: FSMContext):
     dur_labels = {
         "30s": "⚡️ 30 soniya (3 sahna)",
         "60s": "📱 1 daqiqa (6 sahna)",
-        "180s": "🎬 3 daqiqa (15 sahna)",
+        "180s": "🎬 3 daqiqa (9 sahna)",
     }
 
     await safe_edit_or_answer(
