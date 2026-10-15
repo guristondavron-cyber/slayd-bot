@@ -4246,23 +4246,35 @@ async def execute_article_generation(
 async def cb_create_video(callback: CallbackQuery, state: FSMContext, bot: Bot):
     await safe_callback_answer(callback)
     user_id = callback.from_user.id
+    first_name = callback.from_user.first_name or "Foydalanuvchi"
+    username = callback.from_user.username or ""
 
-    if not await check_subscription(user_id, bot):
-        await send_subscription_request(callback.message, user_id)
+    # Foydalanuvchi bazada borligini ta'minlash
+    database.get_or_create_user(user_id, first_name, username)
+
+    is_subbed, unsub_channels = await check_channel_subscription(bot, user_id)
+    if not is_subbed:
+        await safe_edit_or_answer(
+            callback.message,
+            "⚠️ Video yaratish uchun quyidagi homiy kanal(lar)ga a'zo bo'ling:",
+            reply_markup=channel_sub_keyboard(unsub_channels),
+        )
         return
 
-    user = database.get_user(user_id)
-    slides_left = user["slides_left"] if user else 0
-    is_vip = bool(user.get("is_vip", False)) if user else False
+    if not await check_phone_gate(callback, user_id, bot):
+        return
 
-    if not is_vip and slides_left < 1:
+    is_user_adm = is_admin(user_id)
+    if not database.has_slides_left(user_id, is_user_adm):
+        reward = database.get_setting("referral_reward", "2")
         bot_info = await bot.get_me()
         ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
         await safe_edit_or_answer(
             callback.message,
             "⚠️ <b>Video yaratish uchun hisobingizda yetarli limit mavjud emas!</b>\n\n"
-            f"Sizning balansingiz: <b>{slides_left} ta</b>\n\n"
-            "💡 <i>Do'stlaringizni taklif qilib (+2 ta slayd) yoki Omad G'ildiragini aylantirib bepul limit oling!</i>",
+            f"🎁 <b>Har kuni bepul bonus:</b> Bosh menyudagi «🎁 Kunlik Bonus» tugmasini bosing!\n"
+            f"👥 Yoki do'stlaringizni taklif qilib, har biri uchun <b>+{reward} ta bepul limit</b> oling:\n"
+            f"<code>{ref_link}</code>",
             reply_markup=InlineKeyboardMarkup(
                 inline_keyboard=[
                     [
@@ -4306,8 +4318,15 @@ async def cb_create_video(callback: CallbackQuery, state: FSMContext, bot: Bot):
 @router.message(Command("video", "kino", "film"))
 async def cmd_create_video(message: Message, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
-    if not await check_subscription(user_id, bot):
-        await send_subscription_request(message, user_id)
+    is_subbed, unsub_channels = await check_channel_subscription(bot, user_id)
+    if not is_subbed:
+        await message.answer(
+            "⚠️ Video yaratish uchun quyidagi homiy kanal(lar)ga a'zo bo'ling:",
+            reply_markup=channel_sub_keyboard(unsub_channels),
+        )
+        return
+
+    if not await check_phone_gate(message, user_id, bot):
         return
 
     await state.set_state(VideoCreationState.waiting_for_topic)
@@ -4513,7 +4532,8 @@ async def execute_video_generation(
             ]
         )
 
-        await target_msg.answer_video(
+        await bot.send_video(
+            chat_id=user_id,
             video=FSInputFile(video_path),
             caption=caption,
             parse_mode="HTML",
