@@ -334,10 +334,11 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
             InlineKeyboardButton(text="🏆 Reyting (TOP-10)", callback_data="btn_leaderboard"),
         ],
         [
+            InlineKeyboardButton(text="🎡 Omad G'ildiragi (Ruletka)", callback_data="btn_lucky_wheel"),
             InlineKeyboardButton(text="🎁 Kunlik Bonus (+1)", callback_data="btn_daily_bonus"),
-            InlineKeyboardButton(text="🎟 Promokod", callback_data="btn_enter_promo"),
         ],
         [
+            InlineKeyboardButton(text="🎟 Promokod", callback_data="btn_enter_promo"),
             InlineKeyboardButton(text="🎨 Mavzular", callback_data="btn_themes"),
             InlineKeyboardButton(text="ℹ️ Yordam", callback_data="btn_help"),
         ],
@@ -543,6 +544,10 @@ def admin_menu_keyboard() -> InlineKeyboardMarkup:
         inline_keyboard=[
             [
                 InlineKeyboardButton(text="📊 Jonli Statistika", callback_data="adm_stats"),
+                InlineKeyboardButton(text="🏆 Top Referallar Ro'yxati", callback_data="adm_referrals_mgr"),
+            ],
+            [
+                InlineKeyboardButton(text="🏆 Turnir G'oliblari (TOP-3)", callback_data="adm_tournament_winners"),
                 InlineKeyboardButton(text="📢 Homiy Kanallar", callback_data="adm_sponsors"),
             ],
             [
@@ -1098,6 +1103,10 @@ def format_neon_leaderboard(
                 InlineKeyboardButton(text=t_btn, callback_data="lb_period_total"),
             ],
             [
+                InlineKeyboardButton(text="🏆 Haftalik Sovrinli Turnir", callback_data="btn_tournament"),
+                InlineKeyboardButton(text="🎡 Omad G'ildiragi", callback_data="btn_lucky_wheel"),
+            ],
+            [
                 InlineKeyboardButton(
                     text="↗️ Do'stlarga ulashish (+2 slayd)",
                     url=f"https://t.me/share/url?url={ref_link}&text=Sun'iy%20intellektda%20bepul%20slayd%20va%20mustaqil%20ishlar%20yasang!",
@@ -1160,6 +1169,329 @@ async def cmd_leaderboard(message: Message, bot: Bot):
         period="daily",
         user_id=message.from_user.id,
         bot_username=bot_info.username,
+    )
+    await message.answer(text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
+
+
+# ------------------ OMAD G'ILDIRAGI (LUCKY WHEEL) ------------------
+@router.callback_query(F.data == "btn_lucky_wheel")
+async def cb_lucky_wheel(callback: CallbackQuery, bot: Bot):
+    await safe_callback_answer(callback)
+    user_id = callback.from_user.id
+    bot_info = await bot.get_me()
+    can_spin, rem_seconds, note, extra_spins = database.can_spin_lucky_wheel(user_id)
+    u = database.get_user(user_id)
+    slides_left = u["slides_left"] if u else 0
+    is_vip = bool(u.get("is_vip", False)) if u else False
+
+    ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+
+    if can_spin:
+        if extra_spins > 0:
+            status_text = f"🔥 <b>Aylantirishga tayyor!</b> (Sizda <b>{extra_spins} ta navbatsiz</b> imkoniyat bor)"
+        else:
+            status_text = "✨ <b>Bugungi bepul aylantirish tayyor!</b>"
+        action_btn = InlineKeyboardButton(text="🎰 G'ildirakni Aylantirish! 🎲", callback_data="cb_spin_wheel_now")
+    else:
+        h = rem_seconds // 3600
+        m = (rem_seconds % 3600) // 60
+        status_text = f"⏳ <b>Navbatdagi bepul aylantirishgacha:</b> <code>{h} soat {m} daqiqa</code>"
+        action_btn = InlineKeyboardButton(text="⏳ Vaqt tugashini kuting", callback_data="cb_wheel_cooldown")
+
+    text = (
+        "🎡 <b>KUNLIK OMAD G'ILDIRAGI (RULETKA)</b> 🎡\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Sizning balansingiz:</b> <b>{slides_left} ta slayd</b> {'(👑 VIP)' if is_vip else ''}\n"
+        f"🎟 <b>Navbatsiz imkoniyatlar:</b> <b>{extra_spins} ta</b>\n"
+        f"📊 <b>Holat:</b> {status_text}\n\n"
+        "🎁 <b>G'ILDIRAKDAGI KAFOLATLANGAN SOVRINLAR:</b>\n"
+        " • 🎁 +1 ta bepul slayd\n"
+        " • ⚡️ +2 ta bepul slayd\n"
+        " • 🚀 +3 ta bepul slayd\n"
+        " • 💎 <b>Jackpot: +5 ta bepul slayd!</b>\n"
+        " • 📝 1 ta Mustaqil Ish bonusi (+3 slayd)\n"
+        " • 👑 <b>24 soatlik VIP Cheksiz rejim</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>Ko'proq aylantirmoqchimisiz? Har bir taklif qilgan do'stingiz uchun <b>+1 ta qo'shimcha navbatsiz aylantirish</b> beriladi!</i>"
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [action_btn],
+            [
+                InlineKeyboardButton(
+                    text="👥 Do'stni taklif qilish (+1 aylantirish)",
+                    url=f"https://t.me/share/url?url={ref_link}&text=Omad%20g'ildiragini%20aylantiring%20va%20bepul%20slaydlar%20yuting!",
+                )
+            ],
+            [
+                InlineKeyboardButton(text="🏆 Haftalik Turnir", callback_data="btn_tournament"),
+                InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel"),
+            ],
+        ]
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "cb_wheel_cooldown")
+async def cb_wheel_cooldown(callback: CallbackQuery):
+    await safe_callback_answer(
+        callback,
+        "⏳ Bugungi bepul imkoniyatingiz ishlatilgan. Yangi imkoniyat olish uchun do'stingizni taklif qiling!",
+        show_alert=True,
+    )
+
+
+@router.callback_query(F.data == "cb_spin_wheel_now")
+async def cb_spin_wheel_now(callback: CallbackQuery, bot: Bot):
+    user_id = callback.from_user.id
+    success, prize, msg = database.execute_lucky_spin(user_id)
+    if not success:
+        await safe_callback_answer(callback, msg, show_alert=True)
+        return
+
+    # Visual spinning excitement
+    try:
+        await callback.message.edit_text(
+            "🎰 <b>G'ildirak aylanmoqda...</b>\n\n"
+            "🌀 <code>[ ▰▱▱▱▱▱▱▱▱▱ ] 15%</code>\n"
+            "✨ <i>Omadingiz sinalmoqda...</i>",
+            parse_mode="HTML",
+        )
+        await asyncio.sleep(0.9)
+        await callback.message.edit_text(
+            "🎰 <b>G'ildirak to'xtamoqda...</b>\n\n"
+            "🎡 <code>[ ▰▰▰▰▰▰▰▰▱▱ ] 85%</code>\n"
+            "🎯 <i>Deyarli to'xtadi...</i>",
+            parse_mode="HTML",
+        )
+        await asyncio.sleep(0.8)
+    except Exception:
+        pass
+
+    bot_info = await bot.get_me()
+    ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+
+    res_text = (
+        "🎉 <b>TABRIKLAYMIZ! SIZ YUTIB OLDINGIZ!</b> 🎉\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"🎯 <b>Yutuq:</b> {prize.get('icon', '🎁')} <b>{prize.get('label', '')}</b>\n\n"
+        f"📦 <b>Yangi balansingiz:</b> <b>{prize.get('new_balance', 0)} ta slayd</b> "
+        f"{'(👑 VIP Cheksiz)' if prize.get('is_vip') else ''}\n"
+        f"🎟 <b>Qolgan navbatsiz imkoniyatlar:</b> <b>{prize.get('remaining_extra', 0)} ta</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🚀 <i>Yutuqlaringiz hisobingizga avtomatik biriktirildi. Taqdimot yoki mustaqil ish tayyorlashda bemalol foydalanishingiz mumkin!</i>"
+    )
+
+    buttons = []
+    if prize.get("remaining_extra", 0) > 0:
+        buttons.append([InlineKeyboardButton(text="🎰 Yana Aylantirish! 🎲", callback_data="cb_spin_wheel_now")])
+    buttons.append([
+        InlineKeyboardButton(
+            text="👥 Yana do'st chaqirib +1 imkoniyat olish",
+            url=f"https://t.me/share/url?url={ref_link}&text=Omad%20g'ildiragini%20aylantiring%20va%20bepul%20slaydlar%20yuting!",
+        )
+    ])
+    buttons.append([
+        InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide"),
+        InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel"),
+    ])
+
+    await safe_edit_or_answer(callback.message, res_text, reply_markup=InlineKeyboardMarkup(inline_keyboard=buttons))
+
+
+@router.message(Command("wheel", "spin", "omad", "ruletka"))
+async def cmd_lucky_wheel(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    bot_info = await bot.get_me()
+    can_spin, rem_seconds, note, extra_spins = database.can_spin_lucky_wheel(user_id)
+    u = database.get_user(user_id)
+    slides_left = u["slides_left"] if u else 0
+    is_vip = bool(u.get("is_vip", False)) if u else False
+
+    ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+
+    if can_spin:
+        if extra_spins > 0:
+            status_text = f"🔥 <b>Aylantirishga tayyor!</b> (Sizda <b>{extra_spins} ta navbatsiz</b> imkoniyat bor)"
+        else:
+            status_text = "✨ <b>Bugungi bepul aylantirish tayyor!</b>"
+        action_btn = InlineKeyboardButton(text="🎰 G'ildirakni Aylantirish! 🎲", callback_data="cb_spin_wheel_now")
+    else:
+        h = rem_seconds // 3600
+        m = (rem_seconds % 3600) // 60
+        status_text = f"⏳ <b>Navbatdagi bepul aylantirishgacha:</b> <code>{h} soat {m} daqiqa</code>"
+        action_btn = InlineKeyboardButton(text="⏳ Vaqt tugashini kuting", callback_data="cb_wheel_cooldown")
+
+    text = (
+        "🎡 <b>KUNLIK OMAD G'ILDIRAGI (RULETKA)</b> 🎡\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>Sizning balansingiz:</b> <b>{slides_left} ta slayd</b> {'(👑 VIP)' if is_vip else ''}\n"
+        f"🎟 <b>Navbatsiz imkoniyatlar:</b> <b>{extra_spins} ta</b>\n"
+        f"📊 <b>Holat:</b> {status_text}\n\n"
+        "🎁 <b>G'ILDIRAKDAGI KAFOLATLANGAN SOVRINLAR:</b>\n"
+        " • 🎁 +1 ta bepul slayd\n"
+        " • ⚡️ +2 ta bepul slayd\n"
+        " • 🚀 +3 ta bepul slayd\n"
+        " • 💎 <b>Jackpot: +5 ta bepul slayd!</b>\n"
+        " • 📝 1 ta Mustaqil Ish bonusi (+3 slayd)\n"
+        " • 👑 <b>24 soatlik VIP Cheksiz rejim</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "💡 <i>Ko'proq aylantirmoqchimisiz? Har bir taklif qilgan do'stingiz uchun <b>+1 ta qo'shimcha navbatsiz aylantirish</b> beriladi!</i>"
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [action_btn],
+            [
+                InlineKeyboardButton(
+                    text="👥 Do'stni taklif qilish (+1 aylantirish)",
+                    url=f"https://t.me/share/url?url={ref_link}&text=Omad%20g'ildiragini%20aylantiring%20va%20bepul%20slaydlar%20yuting!",
+                )
+            ],
+            [
+                InlineKeyboardButton(text="🏆 Haftalik Turnir", callback_data="btn_tournament"),
+                InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel"),
+            ],
+        ]
+    )
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+# ------------------ HAFTALIK SOVRINLI TURNIR ------------------
+@router.callback_query(F.data == "btn_tournament")
+async def cb_tournament(callback: CallbackQuery, bot: Bot):
+    await safe_callback_answer(callback)
+    user_id = callback.from_user.id
+    bot_info = await bot.get_me()
+    t_info = database.get_tournament_info(user_id)
+    ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+
+    leaders_lines = []
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    prizes_map = {
+        1: "👑 1 Oylik VIP Cheksiz + 50 ta slayd",
+        2: "💎 15 Kunlik VIP Cheksiz + 30 ta slayd",
+        3: "⚡️ 7 Kunlik VIP Cheksiz + 15 ta slayd",
+    }
+    top_weekly = t_info.get("top_weekly", [])
+    if top_weekly:
+        for idx, u in enumerate(top_weekly[:5], start=1):
+            name = (u.get("first_name") or "Foydalanuvchi").strip().replace("<", "&lt;").replace(">", "&gt;")
+            c = u.get("ref_count", 0)
+            medal = medals.get(idx, f"🔹 {idx}.")
+            prz = f"\n      └ 🎁 <i>Yutuq: {prizes_map[idx]}</i>" if idx in prizes_map else ""
+            leaders_lines.append(f"{medal} <b>{name}</b> — <b>{c} ta do'st</b>{prz}")
+    else:
+        leaders_lines.append("⚡️ <i>Ushbu haftada hali hech kim ro'yxatga qo'shilmadi. Birinchi bo'lib do'stlaringizni taklif qiling!</i>")
+
+    leaders_str = "\n".join(leaders_lines)
+
+    text = (
+        "🏆 <b>HAFTALIK SOVRINLI REFERAL KONKURSI</b> 🏆\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🔥 <i>Har yakshanba soat 23:59 da hafta davomida eng ko'p do'st taklif qilgan eng faol TOP-3 ishtirokchilar qimmatbaho sovrinlar bilan taqdirlanadi!</i>\n\n"
+        f"⏱ <b>Turnir tugashiga qoldi:</b> <code>{t_info['remaining_days']} kun, {t_info['remaining_hours']} soat, {t_info['remaining_minutes']} daqiqa</code>\n\n"
+        "🎁 <b>HAFTALIK SOVRINLAR FONDI:</b>\n"
+        "🥇 <b>1-o'rin:</b> 👑 <b>1 Oylik VIP Cheksiz rejim + 50 ta slayd</b>\n"
+        "🥈 <b>2-o'rin:</b> 💎 <b>15 Kunlik VIP Cheksiz rejim + 30 ta slayd</b>\n"
+        "🥉 <b>3-o'rin:</b> ⚡️ <b>7 Kunlik VIP Cheksiz rejim + 15 ta slayd</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🌟 <b>HOZIRGI HAFTALIK PESHQADAMLAR:</b>\n"
+        f"{leaders_str}\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>SIZNING HAFTALIK NATIJANGIZ:</b>\n"
+        f"• Bu hafta taklif qilganlaringiz: <b>{t_info['user_weekly_refs']} ta do'st</b>\n"
+        f"• Haftalik reytingdagi o'rningiz: <b>#{t_info['user_weekly_rank']}</b>\n"
+        f"• Jami taklif qilganlaringiz: <b>{t_info['total_refs']} ta</b>\n\n"
+        f"🔗 <b>Sizning taklif havolangiz:</b>\n"
+        f"<code>{ref_link}</code>"
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="↗️ Do'stlarni taklif qilish (+2 slayd & +1 aylantirish)",
+                    url=f"https://t.me/share/url?url={ref_link}&text=Haftalik%20turnirda%20ishtirok%20eting%20va%20VIP%20status%20yuting!",
+                )
+            ],
+            [
+                InlineKeyboardButton(text="🔄 Yangilash", callback_data="btn_tournament"),
+                InlineKeyboardButton(text="📊 Umumiy Reyting", callback_data="btn_leaderboard"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel"),
+            ],
+        ]
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb, disable_web_page_preview=True)
+
+
+@router.message(Command("turnir", "konkurs", "tournament"))
+async def cmd_tournament(message: Message, bot: Bot):
+    user_id = message.from_user.id
+    bot_info = await bot.get_me()
+    t_info = database.get_tournament_info(user_id)
+    ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+
+    leaders_lines = []
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+    prizes_map = {
+        1: "👑 1 Oylik VIP Cheksiz + 50 ta slayd",
+        2: "💎 15 Kunlik VIP Cheksiz + 30 ta slayd",
+        3: "⚡️ 7 Kunlik VIP Cheksiz + 15 ta slayd",
+    }
+    top_weekly = t_info.get("top_weekly", [])
+    if top_weekly:
+        for idx, u in enumerate(top_weekly[:5], start=1):
+            name = (u.get("first_name") or "Foydalanuvchi").strip().replace("<", "&lt;").replace(">", "&gt;")
+            c = u.get("ref_count", 0)
+            medal = medals.get(idx, f"🔹 {idx}.")
+            prz = f"\n      └ 🎁 <i>Yutuq: {prizes_map[idx]}</i>" if idx in prizes_map else ""
+            leaders_lines.append(f"{medal} <b>{name}</b> — <b>{c} ta do'st</b>{prz}")
+    else:
+        leaders_lines.append("⚡️ <i>Ushbu haftada hali hech kim ro'yxatga qo'shilmadi. Birinchi bo'lib do'stlaringizni taklif qiling!</i>")
+
+    leaders_str = "\n".join(leaders_lines)
+
+    text = (
+        "🏆 <b>HAFTALIK SOVRINLI REFERAL KONKURSI</b> 🏆\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🔥 <i>Har yakshanba soat 23:59 da hafta davomida eng ko'p do'st taklif qilgan eng faol TOP-3 ishtirokchilar qimmatbaho sovrinlar bilan taqdirlanadi!</i>\n\n"
+        f"⏱ <b>Turnir tugashiga qoldi:</b> <code>{t_info['remaining_days']} kun, {t_info['remaining_hours']} soat, {t_info['remaining_minutes']} daqiqa</code>\n\n"
+        "🎁 <b>HAFTALIK SOVRINLAR FONDI:</b>\n"
+        "🥇 <b>1-o'rin:</b> 👑 <b>1 Oylik VIP Cheksiz rejim + 50 ta slayd</b>\n"
+        "🥈 <b>2-o'rin:</b> 💎 <b>15 Kunlik VIP Cheksiz rejim + 30 ta slayd</b>\n"
+        "🥉 <b>3-o'rin:</b> ⚡️ <b>7 Kunlik VIP Cheksiz rejim + 15 ta slayd</b>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "🌟 <b>HOZIRGI HAFTALIK PESHQADAMLAR:</b>\n"
+        f"{leaders_str}\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"👤 <b>SIZNING HAFTALIK NATIJANGIZ:</b>\n"
+        f"• Bu hafta taklif qilganlaringiz: <b>{t_info['user_weekly_refs']} ta do'st</b>\n"
+        f"• Haftalik reytingdagi o'rningiz: <b>#{t_info['user_weekly_rank']}</b>\n"
+        f"• Jami taklif qilganlaringiz: <b>{t_info['total_refs']} ta</b>\n\n"
+        f"🔗 <b>Sizning taklif havolangiz:</b>\n"
+        f"<code>{ref_link}</code>"
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(
+                    text="↗️ Do'stlarni taklif qilish (+2 slayd & +1 aylantirish)",
+                    url=f"https://t.me/share/url?url={ref_link}&text=Haftalik%20turnirda%20ishtirok%20eting%20va%20VIP%20status%20yuting!",
+                )
+            ],
+            [
+                InlineKeyboardButton(text="🔄 Yangilash", callback_data="btn_tournament"),
+                InlineKeyboardButton(text="📊 Umumiy Reyting", callback_data="btn_leaderboard"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel"),
+            ],
+        ]
     )
     await message.answer(text, reply_markup=kb, parse_mode="HTML", disable_web_page_preview=True)
 
@@ -4806,6 +5138,10 @@ async def cb_admin_stats(callback: CallbackQuery):
     if not is_admin(callback.from_user.id):
         return
     await safe_callback_answer(callback)
+    try:
+        database.sync_referral_counts()
+    except Exception:
+        pass
     stats = database.get_global_stats()
     text = (
         "📊 <b>Kengaytirilgan Statistika</b>\n\n"
@@ -4890,6 +5226,245 @@ async def cb_admin_send_retargeting(callback: CallbackQuery, bot: Bot):
         f"✅ <b>Retargeting xabarlari muvaffaqiyatli yakunlandi!</b>\n\n"
         f"📨 Yuborildi: {sent_count} ta foydalanuvchiga\n"
         f"❌ Yetib bormadi (bloklagan): {fail_count} ta",
+        parse_mode="HTML",
+        reply_markup=admin_menu_keyboard(),
+    )
+
+
+# ------------------ ADMIN: REFERALLAR BOSHQARUVI & INSPEKTOR ------------------
+@router.callback_query(F.data == "adm_referrals_mgr")
+async def cb_admin_referrals_mgr(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback, "Referallar hisoblanmoqda...")
+    try:
+        database.sync_referral_counts()
+    except Exception:
+        pass
+    referrers = database.get_all_referrers_admin(limit=30)
+
+    if not referrers:
+        text = (
+            "👑 <b>TOP REFERALLAR VA FOYDALANUVCHILAR</b>\n\n"
+            "ℹ️ Hozircha bazada referal taklif qilgan foydalanuvchilar mavjud emas.\n\n"
+            "<i>Istalgan foydalanuvchi ma'lumotlarini ko'rish uchun:</i>\n"
+            "<code>/user [ID]</code> buyrug'ini yuboring."
+        )
+    else:
+        lines = []
+        for idx, r in enumerate(referrers, start=1):
+            name = (r.get("first_name") or "Foydalanuvchi").strip().replace("<", "&lt;").replace(">", "&gt;")
+            uname = f"@{r['username']}" if r.get("username") else "yo'q"
+            vip_str = "👑 VIP" if r.get("is_vip") else "Oddiy"
+            phone = r.get("phone_number") or "yo'q"
+            lines.append(
+                f"<b>{idx}. {name}</b> ({uname})\n"
+                f"   ├ ID: <code>{r['user_id']}</code> ┃ 👥 <b>{r['referrals_count']} ta referal</b>\n"
+                f"   └ 📦 Balans: {r.get('slides_left', 0)} ta ┃ {vip_str} ┃ 📞 {phone}"
+            )
+        list_str = "\n\n".join(lines)
+        text = (
+            f"👑 <b>REFERALLARI BOR FOYDALANUVCHILAR (TOP-{len(referrers)})</b>\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"{list_str}\n\n"
+            "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            "🔍 <i>Bitta foydalanuvchini to'liq ko'rish (kim chaqirgani, kimlarni chaqirgani):</i>\n"
+            "<code>/user [ID]</code> (masalan: <code>/user 12345678</code>)"
+        )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🔄 Sinxronlash & Yangilash", callback_data="adm_referrals_mgr")],
+            [InlineKeyboardButton(text="🏆 Turnir G'oliblari (TOP-3)", callback_data="adm_tournament_winners")],
+            [InlineKeyboardButton(text="🔙 Admin menyu", callback_data="btn_admin_panel")],
+        ]
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.message(Command("user", "checkuser", "foydalanuvchi"))
+async def cmd_admin_check_user(message: Message, command: CommandObject):
+    if not is_admin(message.from_user.id):
+        return
+    args = (command.args or "").strip()
+    if not args or not args.isdigit():
+        await message.answer(
+            "⚠️ <b>Foydalanuvchi ID sini kiriting!</b>\n\n"
+            "Misol: <code>/user 123456789</code>",
+            parse_mode="HTML",
+        )
+        return
+
+    target_uid = int(args)
+    info = database.get_user_admin_info(target_uid)
+    if not info:
+        await message.answer(f"❌ ID: <code>{target_uid}</code> bazadan topilmadi.", parse_mode="HTML")
+        return
+
+    name = (info.get("first_name") or "Foydalanuvchi").replace("<", "&lt;").replace(">", "&gt;")
+    uname = f"@{info['username']}" if info.get("username") else "mavjud emas"
+    vip_status = "👑 VIP CHEKSIZ" if info.get("is_vip") else "Oddiy"
+    ref_by = info.get("referrer_info")
+    if ref_by:
+        ref_by_str = f"<b>{ref_by.get('first_name', '')}</b> (ID: <code>{ref_by.get('user_id')}</code>, @{ref_by.get('username', '')})"
+    else:
+        ref_by_str = "<i>Hech kim taklif qilmagan (to'g'ridan-to'g'ri kirgan)</i>"
+
+    invited = info.get("invited_users", [])
+    if invited:
+        inv_lines = []
+        for i_u in invited:
+            i_name = (i_u.get("first_name") or "Foydalanuvchi").replace("<", "&lt;").replace(">", "&gt;")
+            i_uname = f"@{i_u['username']}" if i_u.get("username") else ""
+            inv_lines.append(f" • <code>{i_u['user_id']}</code>: {i_name} {i_uname}")
+        invited_str = "\n".join(inv_lines)
+    else:
+        invited_str = "<i>Hali hech kimni taklif qilmagan.</i>"
+
+    text = (
+        f"👤 <b>FOYDALANUVCHI PROFILI (ID: <code>{target_uid}</code>)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📝 <b>Ism:</b> {name}\n"
+        f"🔗 <b>Username:</b> {uname}\n"
+        f"📞 <b>Telefon:</b> {info.get('phone_number') or 'Kiritilmagan'}\n"
+        f"📦 <b>Balans:</b> <b>{info.get('slides_left', 0)} ta slayd</b>\n"
+        f"💎 <b>Status:</b> <b>{vip_status}</b>\n"
+        f"🎟 <b>Navbatsiz ruletka imkoniyatlari:</b> {info.get('extra_spins', 0)} ta\n"
+        f"👥 <b>Jami taklif qilgan referallari:</b> <b>{info.get('referrals_count', 0)} ta</b>\n\n"
+        f"🤝 <b>Kim orqali ro'yxatdan o'tgan:</b>\n{ref_by_str}\n\n"
+        f"👥 <b>Oxirgi taklif qilgan do'stlari:</b>\n{invited_str}\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        f"📅 <b>Ro'yxatdan o'tgan vaqti:</b> <code>{info.get('created_at')}</code>"
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="🎁 +10 Slayd Berish", callback_data=f"adm_quick_add_{target_uid}_10"),
+                InlineKeyboardButton(text="👑 VIP Qilish", callback_data=f"adm_quick_vip_{target_uid}"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Admin Menyu", callback_data="btn_admin_panel"),
+            ],
+        ]
+    )
+    await message.answer(text, reply_markup=kb, parse_mode="HTML")
+
+
+@router.callback_query(F.data.startswith("adm_quick_add_"))
+async def cb_admin_quick_add(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    parts = callback.data.split("_")
+    target_uid = int(parts[3])
+    count = int(parts[4])
+    database.add_user_slides(target_uid, count)
+    await safe_callback_answer(callback, f"✅ Foydalanuvchiga +{count} ta slayd berildi!", show_alert=True)
+
+
+@router.callback_query(F.data.startswith("adm_quick_vip_"))
+async def cb_admin_quick_vip(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    parts = callback.data.split("_")
+    target_uid = int(parts[3])
+    database.set_user_vip(target_uid, True)
+    await safe_callback_answer(callback, "✅ Foydalanuvchiga VIP Cheksiz status berildi!", show_alert=True)
+
+
+# ------------------ ADMIN: HAFTALIK TURNIR G'OLIBLARI VA MUKOFOTLASH ------------------
+@router.callback_query(F.data == "adm_tournament_winners")
+async def cb_admin_tournament_winners(callback: CallbackQuery):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback)
+    try:
+        database.sync_referral_counts()
+    except Exception:
+        pass
+    top_weekly = database.get_top_referrers(period="weekly", limit=3)
+
+    if not top_weekly:
+        text = (
+            "🏆 <b>HAFTALIK TURNIR G'OLIBLARI (TOP-3)</b>\n\n"
+            "ℹ️ Hozircha bu hafta birorta ham referal taklif qilinmagan."
+        )
+        kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🔙 Admin menyu", callback_data="btn_admin_panel")]
+            ]
+        )
+        await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+        return
+
+    prizes = {
+        1: "👑 1 Oylik VIP Cheksiz + 50 ta slayd",
+        2: "💎 15 Kunlik VIP Cheksiz + 30 ta slayd",
+        3: "⚡️ 7 Kunlik VIP Cheksiz + 15 ta slayd",
+    }
+    medals = {1: "🥇", 2: "🥈", 3: "🥉"}
+
+    lines = []
+    for idx, w in enumerate(top_weekly, start=1):
+        name = (w.get("first_name") or "Foydalanuvchi").replace("<", "&lt;").replace(">", "&gt;")
+        uname = f"@{w['username']}" if w.get("username") else "yo'q"
+        lines.append(
+            f"{medals.get(idx)} <b>{idx}-o'rin:</b> <b>{name}</b> ({uname})\n"
+            f"   ├ ID: <code>{w['user_id']}</code> ┃ Referallar: <b>{w.get('ref_count', 0)} ta</b>\n"
+            f"   └ 🎁 Sovrin: <b>{prizes.get(idx)}</b>"
+        )
+
+    text = (
+        "🏆 <b>HAFTALIK TURNIR G'OLIBLARI (TOP-3)</b>\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        + "\n\n".join(lines)
+        + "\n━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "<i>Tugmani bosish orqali yuqoridagi g'oliblarning hisobiga avtomatik ravishda VIP status va bonus slaydlar topshiriladi!</i>"
+    )
+
+    kb = InlineKeyboardMarkup(
+        inline_keyboard=[
+            [InlineKeyboardButton(text="🎁 Sovrinlarni G'oliblarga Topshirish!", callback_data="adm_award_tournament_confirm")],
+            [InlineKeyboardButton(text="🔙 Admin menyu", callback_data="btn_admin_panel")],
+        ]
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "adm_award_tournament_confirm")
+async def cb_admin_award_tournament_confirm(callback: CallbackQuery, bot: Bot):
+    if not is_admin(callback.from_user.id):
+        return
+    await safe_callback_answer(callback, "Sovrinlar topshirilmoqda...")
+    awarded = database.award_tournament_winners()
+
+    if not awarded:
+        await callback.message.answer("⚠️ Taqdim etish uchun g'oliblar topilmadi.")
+        return
+
+    # Notify each winner
+    notified_count = 0
+    for w in awarded:
+        uid = w["user_id"]
+        try:
+            congrats_text = (
+                f"🎉 <b>TABRIKLAYMIZ! SIZ HAFTALIK TURNIR G'OLIBI BO'LDINGIZ!</b> 🎉\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🏆 <b>Sizning o'rningiz:</b> <b>{w['place']}-o'rin</b>\n"
+                f"👥 <b>Haftalik referallaringiz:</b> <b>{w['ref_count']} ta</b>\n"
+                f"🎁 <b>Sizga berilgan sovrin:</b> <b>{w['prize']}</b>\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"🚀 Sovrin balansingizga biriktirildi! @SlaydchiAkabot bilan yangi taqdimotlar yarating!"
+            )
+            await bot.send_message(chat_id=uid, text=congrats_text, parse_mode="HTML")
+            notified_count += 1
+        except Exception:
+            pass
+
+    await callback.message.edit_text(
+        f"✅ <b>Haftalik turnir sovrinlari muvaffaqiyatli topshirildi!</b>\n\n"
+        f"🏆 Mukofotlangan g'oliblar: <b>{len(awarded)} nafar</b>\n"
+        f"📨 Telegram orqali xabar yuborildi: <b>{notified_count} nafariga</b>",
         parse_mode="HTML",
         reply_markup=admin_menu_keyboard(),
     )

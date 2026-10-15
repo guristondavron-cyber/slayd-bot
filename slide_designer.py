@@ -371,7 +371,7 @@ def _render_title_slide(slide, slide_data: SlideContent, theme: ColorTheme, widt
 
     # Mavzuga mos rasm yuklash va o'ng tomonga joylashtirish
     img_kw = getattr(slide_data, "image_keyword", None) or slide_data.title
-    img_path = fetch_topic_image(img_kw) if img_kw else None
+    img_path = (fetch_ai_image_sync(img_kw) or fetch_topic_image(img_kw)) if img_kw else None
 
     text_width = card_w - Inches(1.6)
     if img_path and os.path.exists(img_path):

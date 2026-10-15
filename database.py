@@ -113,6 +113,14 @@ def init_db():
             if hasattr(conn.conn, "rollback"):
                 conn.conn.rollback()
 
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS last_lucky_spin TIMESTAMP")
+            cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS extra_spins INT DEFAULT 0")
+            conn.commit()
+        except Exception:
+            if hasattr(conn.conn, "rollback"):
+                conn.conn.rollback()
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS last_presentations (
             user_id BIGINT PRIMARY KEY,
@@ -290,6 +298,16 @@ def init_db():
         except Exception:
             pass
 
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN last_lucky_spin TIMESTAMP")
+        except Exception:
+            pass
+
+        try:
+            cursor.execute("ALTER TABLE users ADD COLUMN extra_spins INTEGER DEFAULT 0")
+        except Exception:
+            pass
+
         cursor.execute("""
         CREATE TABLE IF NOT EXISTS last_presentations (
             user_id INTEGER PRIMARY KEY,
@@ -416,6 +434,12 @@ def init_db():
 
     conn.commit()
     conn.close()
+
+    try:
+        sync_referral_counts()
+    except Exception:
+        pass
+
 
 
 def get_setting(key: str, default: str = "") -> str:
@@ -575,7 +599,7 @@ def get_or_create_user(
         cursor.execute(
             """
             UPDATE users 
-            SET slides_left = slides_left + ?, referrals_count = referrals_count + 1 
+            SET slides_left = slides_left + ?, referrals_count = referrals_count + 1, extra_spins = COALESCE(extra_spins, 0) + 1 
             WHERE user_id = ?
             """,
             (bonus, valid_referrer),
@@ -896,9 +920,26 @@ def get_global_stats() -> Dict[str, Any]:
         cursor.execute("SELECT COUNT(*) as cnt FROM presentations WHERE DATE(created_at) = DATE('now')")
     today_presentations = cursor.fetchone()["cnt"]
 
-    cursor.execute("SELECT SUM(referrals_count) as cnt FROM users")
+    # Referallar hisobi (users, referral_events va referred_by orqali eng to'liqini olamiz)
+    cursor.execute("SELECT COALESCE(SUM(referrals_count), 0) as cnt FROM users")
     row_ref = cursor.fetchone()
-    total_referrals = row_ref["cnt"] if (row_ref and row_ref["cnt"]) else 0
+    c1 = row_ref["cnt"] if (row_ref and row_ref["cnt"]) else 0
+
+    try:
+        cursor.execute("SELECT COUNT(*) as cnt FROM referral_events")
+        row_ev = cursor.fetchone()
+        c2 = row_ev["cnt"] if (row_ev and row_ev["cnt"]) else 0
+    except Exception:
+        c2 = 0
+
+    try:
+        cursor.execute("SELECT COUNT(*) as cnt FROM users WHERE referred_by IS NOT NULL")
+        row_rb = cursor.fetchone()
+        c3 = row_rb["cnt"] if (row_rb and row_rb["cnt"]) else 0
+    except Exception:
+        c3 = 0
+
+    total_referrals = max(c1, c2, c3)
 
     cursor.execute("SELECT COUNT(*) as cnt FROM admin_users")
     total_subadmins = cursor.fetchone()["cnt"]
@@ -1306,4 +1347,251 @@ def get_top_referrers(period: str = "daily", limit: int = 10) -> List[Dict[str, 
     rows = cursor.fetchall()
     conn.close()
     return [dict(r) for r in rows] if rows else []
+
+
+def sync_referral_counts():
+    """Barcha foydalanuvchilarning referallari sonini qayta to'liq tekshirib, sinxronlaydi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        # 1. users jadvalidagi referred_by orqali referral_events ni to'ldirish
+        if IS_POSTGRES:
+            cursor.execute("""
+                INSERT INTO referral_events (referrer_id, referred_id, created_at)
+                SELECT referred_by, user_id, created_at FROM users 
+                WHERE referred_by IS NOT NULL
+                ON CONFLICT (referred_id) DO NOTHING
+            """)
+        else:
+            cursor.execute("""
+                INSERT OR IGNORE INTO referral_events (referrer_id, referred_id, created_at)
+                SELECT referred_by, user_id, created_at FROM users 
+                WHERE referred_by IS NOT NULL
+            """)
+
+        # 2. referral_events dagi haqiqiy sonlarni users.referrals_count ga sinxronlash
+        cursor.execute("""
+            UPDATE users SET referrals_count = (
+                SELECT COUNT(*) FROM referral_events WHERE referral_events.referrer_id = users.user_id
+            ) WHERE user_id IN (SELECT DISTINCT referrer_id FROM referral_events)
+        """)
+        conn.commit()
+    except Exception:
+        pass
+    finally:
+        conn.close()
+
+
+def get_all_referrers_admin(limit: int = 50) -> List[Dict[str, Any]]:
+    """Admin uchun referallari bor barcha foydalanuvchilar ro'yxati."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT 
+            u.user_id,
+            u.first_name,
+            u.username,
+            COALESCE(u.referrals_count, 0) as referrals_count,
+            u.slides_left,
+            u.is_vip,
+            u.phone_number,
+            u.created_at
+        FROM users u
+        WHERE COALESCE(u.referrals_count, 0) > 0 
+           OR u.user_id IN (SELECT DISTINCT referrer_id FROM referral_events)
+        ORDER BY referrals_count DESC
+        LIMIT ?
+    """, (limit,))
+    rows = cursor.fetchall()
+    conn.close()
+    return [dict(r) for r in rows] if rows else []
+
+
+def get_user_admin_info(user_id: int) -> Optional[Dict[str, Any]]:
+    """Admin bitta foydalanuvchini to'liq tekshirishi uchun ma'lumot."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM users WHERE user_id = ?", (user_id,))
+    row = cursor.fetchone()
+    if not row:
+        conn.close()
+        return None
+    res = dict(row)
+
+    # Foydalanuvchini kim taklif qilgani
+    if res.get("referred_by"):
+        cursor.execute("SELECT user_id, first_name, username FROM users WHERE user_id = ?", (res["referred_by"],))
+        ref_by_row = cursor.fetchone()
+        res["referrer_info"] = dict(ref_by_row) if ref_by_row else None
+    else:
+        res["referrer_info"] = None
+
+    # Ushbu foydalanuvchi taklif qilgan so'nggi do'stlar
+    cursor.execute("""
+        SELECT user_id, first_name, username, created_at 
+        FROM users 
+        WHERE referred_by = ? 
+        ORDER BY created_at DESC 
+        LIMIT 10
+    """, (user_id,))
+    res["invited_users"] = [dict(r) for r in cursor.fetchall()]
+    conn.close()
+    return res
+
+
+# ------------------ OMAD G'ILDIRAGI (LUCKY WHEEL) ------------------
+import random
+
+LUCKY_WHEEL_PRIZES = [
+    {"id": "s1", "type": "slides", "amount": 1, "label": "🎁 +1 ta bepul slayd", "weight": 35, "icon": "🎁"},
+    {"id": "s2", "type": "slides", "amount": 2, "label": "⚡️ +2 ta bepul slayd", "weight": 25, "icon": "⚡️"},
+    {"id": "s3", "type": "slides", "amount": 3, "label": "🚀 +3 ta bepul slayd", "weight": 15, "icon": "🚀"},
+    {"id": "s5", "type": "slides", "amount": 5, "label": "💎 Jackpot: +5 ta slayd", "weight": 10, "icon": "💎"},
+    {"id": "essay", "type": "essay_bonus", "amount": 3, "label": "📝 1 ta Mustaqil Ish (+3 slayd)", "weight": 10, "icon": "📝"},
+    {"id": "vip", "type": "vip", "amount": 1, "label": "👑 24 soatlik VIP Cheksiz rejim", "weight": 5, "icon": "👑"},
+]
+
+
+def can_spin_lucky_wheel(user_id: int) -> Tuple[bool, int, str, int]:
+    """
+    Foydalanuvchi Omad G'ildiragini aylantira oladimi?
+    Qaytaradi: (mumkinmi: bool, qolgan_soniya: int, izoh: str, mavjud_extra_spins: int)
+    """
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT last_lucky_spin, extra_spins FROM users WHERE user_id = ?", (user_id,))
+    u = cursor.fetchone()
+    conn.close()
+    if not u:
+        return True, 0, "Kunlik bepul aylantirish mavjud!", 0
+
+    extra = u["extra_spins"] if ("extra_spins" in u.keys() and u["extra_spins"]) else 0
+    if extra > 0:
+        return True, 0, f"Sizda {extra} ta qo'shimcha navbatsiz imkoniyat bor!", extra
+
+    last_spin = u["last_lucky_spin"] if ("last_lucky_spin" in u.keys() and u["last_lucky_spin"]) else None
+    if not last_spin:
+        return True, 0, "Kunlik bepul aylantirish mavjud!", 0
+
+    if isinstance(last_spin, str):
+        try:
+            last_dt = datetime.datetime.fromisoformat(last_spin.replace(" ", "T"))
+        except Exception:
+            last_dt = datetime.datetime.now() - datetime.timedelta(days=2)
+    elif isinstance(last_spin, datetime.datetime):
+        last_dt = last_spin
+    else:
+        last_dt = datetime.datetime.now() - datetime.timedelta(days=2)
+
+    diff = (datetime.datetime.now() - last_dt).total_seconds()
+    cooldown = 24 * 3600
+    if diff >= cooldown:
+        return True, 0, "Kunlik bepul aylantirish mavjud!", 0
+
+    rem = int(cooldown - diff)
+    return False, rem, "Bugungi bepul imkoniyatdan foydalandingiz.", 0
+
+
+def execute_lucky_spin(user_id: int) -> Tuple[bool, Dict[str, Any], str]:
+    """Omad g'ildiragini aylantiradi va yutuqni balansga qo'shadi."""
+    can, rem, msg, extra = can_spin_lucky_wheel(user_id)
+    if not can:
+        h = rem // 3600
+        m = (rem % 3600) // 60
+        return False, {}, f"⏳ Keyingi bepul aylantirishgacha: <b>{h} soat {m} daqiqa</b> qoldi.\n\n💡 <i>Do'stingizni taklif qiling va har bir do'stingiz uchun +1 ta navbatsiz aylantirish imkoniyatini oling!</i>"
+
+    weights = [p["weight"] for p in LUCKY_WHEEL_PRIZES]
+    won_prize = random.choices(LUCKY_WHEEL_PRIZES, weights=weights, k=1)[0].copy()
+
+    conn = get_connection()
+    cursor = conn.cursor()
+
+    if extra > 0:
+        cursor.execute("UPDATE users SET extra_spins = CASE WHEN extra_spins > 0 THEN extra_spins - 1 ELSE 0 END WHERE user_id = ?", (user_id,))
+    else:
+        cursor.execute("UPDATE users SET last_lucky_spin = CURRENT_TIMESTAMP WHERE user_id = ?", (user_id,))
+
+    if won_prize["type"] in ("slides", "essay_bonus"):
+        cursor.execute("UPDATE users SET slides_left = slides_left + ? WHERE user_id = ?", (won_prize["amount"], user_id))
+    elif won_prize["type"] == "vip":
+        cursor.execute("UPDATE users SET is_vip = 1 WHERE user_id = ?", (user_id,))
+
+    conn.commit()
+
+    cursor.execute("SELECT slides_left, is_vip, extra_spins FROM users WHERE user_id = ?", (user_id,))
+    updated_u = cursor.fetchone()
+    conn.close()
+
+    won_prize["new_balance"] = updated_u["slides_left"] if updated_u else 0
+    won_prize["is_vip"] = updated_u["is_vip"] if updated_u else 0
+    won_prize["remaining_extra"] = updated_u["extra_spins"] if updated_u else 0
+    return True, won_prize, "Yutuq hisobingizga muvaffaqiyatli qo'shildi!"
+
+
+# ------------------ HAFTALIK SOVRINLI TURNIR ------------------
+def get_tournament_info(user_id: int) -> Dict[str, Any]:
+    """Haftalik turnir holati, sovrinlar va qolgan vaqt."""
+    now = datetime.datetime.now()
+    days_until_sunday = (6 - now.weekday()) % 7
+    end_of_week = (now + datetime.timedelta(days=days_until_sunday)).replace(
+        hour=23, minute=59, second=59, microsecond=0
+    )
+    if end_of_week < now:
+        end_of_week += datetime.timedelta(days=7)
+    delta = end_of_week - now
+    days = delta.days
+    hours = delta.seconds // 3600
+    minutes = (delta.seconds % 3600) // 60
+
+    top_weekly = get_top_referrers(period="weekly", limit=10)
+    user_stats = get_user_referral_stats(user_id)
+
+    return {
+        "remaining_days": days,
+        "remaining_hours": hours,
+        "remaining_minutes": minutes,
+        "top_weekly": top_weekly,
+        "user_weekly_refs": user_stats["weekly_referrals"],
+        "user_weekly_rank": user_stats["rank_weekly"],
+        "total_refs": user_stats["total_referrals"],
+    }
+
+
+def award_tournament_winners() -> List[Dict[str, Any]]:
+    """Haftalik turnirning TOP-3 g'oliblariga avtomatik sovrinlarni topshiradi."""
+    top_weekly = get_top_referrers(period="weekly", limit=3)
+    if not top_weekly:
+        return []
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    awarded = []
+
+    for idx, winner in enumerate(top_weekly, start=1):
+        uid = winner["user_id"]
+        if idx == 1:
+            prize_name = "👑 1 Oylik VIP Cheksiz + 50 ta slayd"
+            cursor.execute("UPDATE users SET is_vip = 1, slides_left = slides_left + 50 WHERE user_id = ?", (uid,))
+        elif idx == 2:
+            prize_name = "💎 15 Kunlik VIP Cheksiz + 30 ta slayd"
+            cursor.execute("UPDATE users SET is_vip = 1, slides_left = slides_left + 30 WHERE user_id = ?", (uid,))
+        elif idx == 3:
+            prize_name = "⚡️ 7 Kunlik VIP Cheksiz + 15 ta slayd"
+            cursor.execute("UPDATE users SET is_vip = 1, slides_left = slides_left + 15 WHERE user_id = ?", (uid,))
+        else:
+            prize_name = "🎁 +5 ta bepul slayd"
+            cursor.execute("UPDATE users SET slides_left = slides_left + 5 WHERE user_id = ?", (uid,))
+
+        awarded.append({
+            "place": idx,
+            "user_id": uid,
+            "first_name": winner.get("first_name", "Foydalanuvchi"),
+            "username": winner.get("username", ""),
+            "prize": prize_name,
+            "ref_count": winner.get("ref_count", 0),
+        })
+
+    conn.commit()
+    conn.close()
+    return awarded
 

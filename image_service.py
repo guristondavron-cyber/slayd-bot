@@ -49,9 +49,27 @@ def fetch_ai_image_sync(prompt: str, width: int = 800, height: int = 600, timeou
                     with open(cache_path, "wb") as f:
                         f.write(data)
                     logger.info(f"AI rasm muvaffaqiyatli yuklandi: {clean_prompt[:30]}...")
-                    return cache_path
     except Exception as e:
         logger.warning(f"AI rasm yuklashda ogohlantirish ({clean_prompt[:25]}...): {e}")
+
+    # 2. Zaxira HD Foto manbasi (Picsum / Direct theme seed)
+    try:
+        kw_hash = abs(int(hashlib.md5(clean_prompt.encode("utf-8")).hexdigest(), 16)) % 1000
+        backup_url = f"https://picsum.photos/seed/{kw_hash}/{width}/{height}"
+        req2 = urllib.request.Request(
+            backup_url,
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64)"}
+        )
+        with urllib.request.urlopen(req2, timeout=4) as response:
+            if response.status == 200:
+                data = response.read()
+                if len(data) > 1024:
+                    with open(cache_path, "wb") as f:
+                        f.write(data)
+                    logger.info(f"Zaxira HD rasm yuklandi: {clean_prompt[:30]}...")
+                    return cache_path
+    except Exception as e2:
+        logger.warning(f"Zaxira rasm yuklashda ogohlantirish: {e2}")
 
     return None
 
