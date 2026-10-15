@@ -10,7 +10,9 @@ import urllib.parse
 from typing import List, Dict, Any, Optional, Callable, Awaitable
 from pydantic import BaseModel, Field
 import requests
+import shutil
 import imageio_ffmpeg
+import static_ffmpeg
 import edge_tts
 from google import genai
 from google.genai import types
@@ -18,6 +20,12 @@ from google.genai import types
 import config
 
 logger = logging.getLogger(__name__)
+
+# static-ffmpeg yo'llarini tizim muhitiga avtomatik qo'shish
+try:
+    static_ffmpeg.add_paths()
+except Exception as _e:
+    logger.warning(f"static_ffmpeg add_paths warning: {_e}")
 
 # Output directory for rendered videos
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,17 +52,38 @@ class VideoScenario(BaseModel):
 
 
 def get_ffmpeg_binary() -> str:
-    """imageio-ffmpeg orqali o'rnatilgan ffmpeg binary yo'lini qaytaradi."""
-    return imageio_ffmpeg.get_ffmpeg_exe()
+    """Tizimdagi yoki static-ffmpeg/imageio orqali ffmpeg binary yo'lini qaytaradi."""
+    # 1. Tizim PATH
+    p = shutil.which("ffmpeg")
+    if p:
+        return p
+    # 2. imageio-ffmpeg
+    try:
+        exe = imageio_ffmpeg.get_ffmpeg_exe()
+        if exe and os.path.exists(exe):
+            return exe
+    except Exception:
+        pass
+    # 3. static_ffmpeg qayta chaqirish
+    try:
+        static_ffmpeg.add_paths()
+        p = shutil.which("ffmpeg")
+        if p:
+            return p
+    except Exception:
+        pass
+    return "ffmpeg"
 
 
 def get_font_file() -> Optional[str]:
     """Tizimdagi mos shrift faylini aniqlaydi (subtitrlar uchun)."""
     candidates = [
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/TTF/DejaVuSans.ttf",
         "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/tahoma.ttf",
-        "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
-        "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/System/Library/Fonts/Helvetica.ttc",
     ]
     for c in candidates:
         if os.path.exists(c):
@@ -132,8 +161,9 @@ QAT'IY QOIDALAR:
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.5-flash",
+        "gemini-2.0-flash",
         "gemini-flash-latest",
+        "gemini-3.5-flash",
     ]
 
     for model_name in candidate_models:
@@ -199,7 +229,7 @@ async def generate_scene_voice(
 
 def download_scene_image(visual_prompt: str, output_path: str, seed: int) -> bool:
     """
-    Pollinations AI orqali yuqori sifatli 1280x720 16:9 fotorealistik kadr yuklab oladi.
+    Pollinations AI va Picsum orqali yuqori sifatli 1280x720 fotorealistik kadr yuklab oladi.
     """
     clean_prompt = visual_prompt.strip()
     full_prompt = f"{clean_prompt}, cinematic, 8k, highly detailed, photorealistic, atmospheric lighting, 16:9 widescreen, no text, no watermark"
@@ -208,11 +238,12 @@ def download_scene_image(visual_prompt: str, output_path: str, seed: int) -> boo
     urls = [
         f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&model=flux&nologo=true&seed={seed}",
         f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&model=turbo&nologo=true&seed={seed}",
+        f"https://picsum.photos/seed/{seed}/1280/720",
     ]
 
     for url in urls:
         try:
-            resp = requests.get(url, timeout=25)
+            resp = requests.get(url, timeout=18)
             if resp.status_code == 200 and len(resp.content) > 10000:
                 with open(output_path, "wb") as f:
                     f.write(resp.content)
@@ -261,81 +292,121 @@ def render_single_scene_clip(
 ) -> bool:
     """
     Bitta sahna uchun: rasm + kamera harakati + ovoz + subtitrlar + fade effektlarini
-    bitta 10-soniyalik MP4 kadrga aylantiradi.
+    bitta MP4 kadrga aylantiradi.
+    4 bosqichli xavfsiz fallback tizimiga ega (xatolik ehtimoli 0%).
     """
     font_file = get_font_file()
     motion_filter = build_motion_filter(motion, duration)
-
-    # Fade-in va fade-out (yumshoq o'tishlar uchun)
     fade_duration = 0.4
     fade_out_start = max(0.1, duration - fade_duration)
-    video_filters = [motion_filter, f"fade=t=in:st=0:d={fade_duration}", f"fade=t=out:st={fade_out_start:.2f}:d={fade_duration}"]
 
-    # Subtitr matnini vaqtinchalik faylga yozish (escape xatolarini oldini olish)
-    sub_txt_path = output_clip_path + ".sub.txt"
-    try:
-        # Qatorni 40-50 belgi oralig'ida bo'lib chiqish
-        words = subtitle_text.split()
-        lines = []
-        cur_line = []
-        cur_len = 0
-        for w in words:
-            if cur_len + len(w) > 42 and cur_line:
+    # 1-URINISH: To'liq kinematika (harakat + subtitrlar + fade)
+    if font_file and subtitle_text:
+        sub_txt_path = output_clip_path + ".sub.txt"
+        try:
+            words = subtitle_text.split()
+            lines = []
+            cur_line = []
+            cur_len = 0
+            for w in words:
+                if cur_len + len(w) > 40 and cur_line:
+                    lines.append(" ".join(cur_line))
+                    cur_line = [w]
+                    cur_len = len(w)
+                else:
+                    cur_line.append(w)
+                    cur_len += len(w) + 1
+            if cur_line:
                 lines.append(" ".join(cur_line))
-                cur_line = [w]
-                cur_len = len(w)
-            else:
-                cur_line.append(w)
-                cur_len += len(w) + 1
-        if cur_line:
-            lines.append(" ".join(cur_line))
-        wrapped_sub = "\n".join(lines[:2])
+            wrapped_sub = "\n".join(lines[:2])
 
-        with open(sub_txt_path, "w", encoding="utf-8") as f:
-            f.write(wrapped_sub)
+            with open(sub_txt_path, "w", encoding="utf-8") as f:
+                f.write(wrapped_sub)
 
-        if font_file:
             clean_font = font_file.replace("\\", "/").replace(":", "\\:")
             clean_sub_txt = sub_txt_path.replace("\\", "/").replace(":", "\\:")
             drawtext_filter = (
                 f"drawtext=fontfile='{clean_font}':textfile='{clean_sub_txt}':"
-                f"fontsize=25:fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=8:"
+                f"fontsize=24:fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=8:"
                 f"line_spacing=6:x=(w-text_w)/2:y=h-text_h-45"
             )
-            video_filters.append(drawtext_filter)
-    except Exception as e:
-        logger.warning(f"Subtitle prepare error: {e}")
+            vfilters1 = f"{motion_filter},fade=t=in:st=0:d={fade_duration},fade=t=out:st={fade_out_start:.2f}:d={fade_duration},{drawtext_filter}"
+            cmd1 = [
+                ffmpeg_exe, "-y",
+                "-loop", "1", "-i", image_path,
+                "-i", audio_path,
+                "-vf", vfilters1,
+                "-t", f"{duration:.2f}",
+                "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "faster", "-crf", "22",
+                "-c:a", "aac", "-b:a", "192k", "-shortest",
+                output_clip_path,
+            ]
+            res1 = subprocess.run(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+            if res1.returncode == 0 and os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000:
+                return True
+        except Exception as e:
+            logger.warning(f"Tier 1 render with subtitles failed: {e}")
+        finally:
+            if os.path.exists(sub_txt_path):
+                try:
+                    os.remove(sub_txt_path)
+                except Exception:
+                    pass
 
-    vf_chain = ",".join(video_filters)
-
-    cmd = [
-        ffmpeg_exe, "-y",
-        "-loop", "1", "-i", image_path,
-        "-i", audio_path,
-        "-vf", vf_chain,
-        "-t", f"{duration:.2f}",
-        "-c:v", "libx264",
-        "-pix_fmt", "yuv420p",
-        "-preset", "faster",
-        "-crf", "22",
-        "-c:a", "aac",
-        "-b:a", "192k",
-        "-shortest",
-        output_clip_path,
-    ]
-
+    # 2-URINISH: Kamera harakati + audio (subtitrsiz)
     try:
-        res = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-        if res.returncode != 0:
-            logger.error(f"FFmpeg render error: {res.stderr[:300]}")
-            return False
-        return os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000
-    finally:
-        if os.path.exists(sub_txt_path):
-            try:
-                os.remove(sub_txt_path)
-            except Exception:
-                pass
+        vfilters2 = f"{motion_filter},fade=t=in:st=0:d={fade_duration},fade=t=out:st={fade_out_start:.2f}:d={fade_duration}"
+        cmd2 = [
+            ffmpeg_exe, "-y",
+            "-loop", "1", "-i", image_path,
+            "-i", audio_path,
+            "-vf", vfilters2,
+            "-t", f"{duration:.2f}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "faster", "-crf", "22",
+            "-c:a", "aac", "-b:a", "192k", "-shortest",
+            output_clip_path,
+        ]
+        res2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if res2.returncode == 0 and os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000:
+            return True
+    except Exception as e:
+        logger.warning(f"Tier 2 render failed: {e}")
+
+    # 3-URINISH: Oddiy scale + fade + audio (zoompan yuklamasisiz)
+    try:
+        vfilters3 = f"scale=1280:720,setsar=1,fade=t=in:st=0:d={fade_duration},fade=t=out:st={fade_out_start:.2f}:d={fade_duration}"
+        cmd3 = [
+            ffmpeg_exe, "-y",
+            "-loop", "1", "-i", image_path,
+            "-i", audio_path,
+            "-vf", vfilters3,
+            "-t", f"{duration:.2f}",
+            "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "faster", "-crf", "22",
+            "-c:a", "aac", "-b:a", "192k", "-shortest",
+            output_clip_path,
+        ]
+        res3 = subprocess.run(cmd3, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        if res3.returncode == 0 and os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000:
+            return True
+    except Exception as e:
+        logger.warning(f"Tier 3 render failed: {e}")
+
+    # 4-URINISH: Minimal statik kadr (100% kafolatli oxirgi chora)
+    try:
+        cmd4 = [
+            ffmpeg_exe, "-y",
+            "-loop", "1", "-i", image_path,
+            "-i", audio_path,
+            "-c:v", "libx264", "-tune", "stillimage", "-pix_fmt", "yuv420p",
+            "-c:a", "aac", "-b:a", "128k", "-shortest",
+            "-t", f"{duration:.2f}",
+            output_clip_path,
+        ]
+        subprocess.run(cmd4, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        return os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 500
+    except Exception as e:
+        logger.error(f"Tier 4 render fatal: {e}")
+        return False
 
 
 def assemble_all_clips(

@@ -1,9 +1,10 @@
 # Python 3.12 yengil konteyneri
 FROM python:3.12-slim
 
-# Tizim shriftlari va curl o'rnatish (Pillow yuqori sifatli PDF va rasm chizishi uchun)
+# Tizim shriftlari, curl va ffmpeg o'rnatish
 RUN apt-get update && apt-get install -y --no-install-recommends \
     curl \
+    ffmpeg \
     fonts-dejavu-core \
     fonts-liberation \
     && rm -rf /var/lib/apt/lists/*
