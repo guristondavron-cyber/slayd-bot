@@ -74,6 +74,8 @@ from article_service import (
     create_scientific_article_docx,
     ScientificArticle,
 )
+import video_service
+
 
 # Logging
 log_file = os.path.join(os.path.dirname(__file__), "bot.log")
@@ -157,6 +159,13 @@ class AdminState(StatesGroup):
     waiting_for_new_admin = State()
     waiting_for_create_promo = State()
     waiting_for_payment_info = State()
+
+
+class VideoCreationState(StatesGroup):
+    waiting_for_topic = State()
+    waiting_for_duration = State()
+    waiting_for_voice = State()
+
 
 
 def is_admin(user_id: int) -> bool:
@@ -315,7 +324,10 @@ def get_webapp_url(user_id: int) -> str:
 
 def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
     buttons = [
-        [InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide")],
+        [
+            InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide"),
+            InlineKeyboardButton(text="🎬 AI Video (Film/Rolik)", callback_data="btn_create_video"),
+        ],
         [
             InlineKeyboardButton(text="📝 Mustaqil Ish (Word & Qo'lda A4)", callback_data="btn_create_essay"),
             InlineKeyboardButton(text="📄 Ilmiy Maqola / Tezis", callback_data="btn_create_article"),
@@ -531,6 +543,39 @@ def speech_selection_keyboard() -> InlineKeyboardMarkup:
             ],
             [
                 InlineKeyboardButton(text="⚡️ Yo'q, faqat slaydlar yetarli", callback_data="speech_no"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel"),
+            ],
+        ]
+    )
+
+
+def video_duration_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="⚡️ 30 soniya (Tezkor - 3 sahna)", callback_data="v_dur_30s"),
+            ],
+            [
+                InlineKeyboardButton(text="📱 1 daqiqa (Reels/Shorts - 6 sahna)", callback_data="v_dur_60s"),
+            ],
+            [
+                InlineKeyboardButton(text="🎬 3 daqiqa (To'liq film - 15 sahna)", callback_data="v_dur_180s"),
+            ],
+            [
+                InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel"),
+            ],
+        ]
+    )
+
+
+def video_voice_keyboard() -> InlineKeyboardMarkup:
+    return InlineKeyboardMarkup(
+        inline_keyboard=[
+            [
+                InlineKeyboardButton(text="👩 Madina (Ayol diktor)", callback_data="v_voice_madina"),
+                InlineKeyboardButton(text="👨 Sardor (Erkak diktor)", callback_data="v_voice_sardor"),
             ],
             [
                 InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel"),
@@ -4191,6 +4236,303 @@ async def execute_article_generation(
             await status_msg.edit_text(
                 "❌ Ilmiy maqolani tayyorlashda xatolik yuz berdi. Iltimos, birozdan so'ng qayta urinib ko'ring.",
                 reply_markup=main_menu_keyboard(user_id),
+            )
+        except Exception:
+            pass
+
+
+# ------------------ AI VIDEO / FILM YARATISH (MULTI-SCENE SSENARIY) ------------------
+@router.callback_query(F.data == "btn_create_video")
+async def cb_create_video(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await safe_callback_answer(callback)
+    user_id = callback.from_user.id
+
+    if not await check_subscription(user_id, bot):
+        await send_subscription_request(callback.message, user_id)
+        return
+
+    user = database.get_user(user_id)
+    slides_left = user["slides_left"] if user else 0
+    is_vip = bool(user.get("is_vip", False)) if user else False
+
+    if not is_vip and slides_left < 1:
+        bot_info = await bot.get_me()
+        ref_link = f"https://t.me/{bot_info.username}?start=ref_{user_id}"
+        await safe_edit_or_answer(
+            callback.message,
+            "⚠️ <b>Video yaratish uchun hisobingizda yetarli limit mavjud emas!</b>\n\n"
+            f"Sizning balansingiz: <b>{slides_left} ta</b>\n\n"
+            "💡 <i>Do'stlaringizni taklif qilib (+2 ta slayd) yoki Omad G'ildiragini aylantirib bepul limit oling!</i>",
+            reply_markup=InlineKeyboardMarkup(
+                inline_keyboard=[
+                    [
+                        InlineKeyboardButton(
+                            text="↗️ Do'stlarni taklif qilish (+2 slayd)",
+                            url=f"https://t.me/share/url?url={ref_link}&text=Sun'iy%20intellektda%20bepul%20video%20va%20slaydlar%20yasang!",
+                        )
+                    ],
+                    [
+                        InlineKeyboardButton(text="🎡 Omad G'ildiragi (Ruletka)", callback_data="btn_lucky_wheel"),
+                        InlineKeyboardButton(text="💎 VIP Tariflar", callback_data="btn_tariffs"),
+                    ],
+                    [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+                ]
+            ),
+        )
+        return
+
+    await state.set_state(VideoCreationState.waiting_for_topic)
+    text = (
+        "🎬 <b>AI VIDEO / FILM YARATISH REJIMI</b> 🎬\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Istalgan mavzu yoki video g'oyangizni yozib yuboring:\n\n"
+        "<i>Masalan:</i>\n"
+        "• <i>Amir Temur saltanati va buyuk g'alabalari</i>\n"
+        "• <i>2050-yildagi kelajak texnologiyalari va robotlar</i>\n"
+        "• <i>Koinotning eng sirli qora tuynuklari</i>\n"
+        "• <i>Sun'iy intellektning insoniyatga ta'siri</i>\n\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "✨ <b>Sun'iy intellekt siz uchun:</b>\n"
+        "1. To'liq kinostsenariy va kadrlar ketma-ketligini tuzadi\n"
+        "2. Har bir sahnani (10 sekunddan) generatsiya qiladi\n"
+        "3. O'zbekcha professional diktor nutqini yozadi\n"
+        "4. Dinamik kamera harakati, subtitr va fon musiqasi bilan MP4 video qilib montajlaydi!\n\n"
+        "❌ <i>Bekor qilish uchun /cancel deb yozing.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")]])
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.message(Command("video", "kino", "film"))
+async def cmd_create_video(message: Message, state: FSMContext, bot: Bot):
+    user_id = message.from_user.id
+    if not await check_subscription(user_id, bot):
+        await send_subscription_request(message, user_id)
+        return
+
+    await state.set_state(VideoCreationState.waiting_for_topic)
+    text = (
+        "🎬 <b>AI VIDEO / FILM YARATISH REJIMI</b> 🎬\n"
+        "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+        "Istalgan mavzu yoki video g'oyangizni yozib yuboring:\n\n"
+        "<i>Masalan:</i>\n"
+        "• <i>Amir Temur saltanati va buyuk g'alabalari</i>\n"
+        "• <i>2050-yildagi kelajak shahri</i>\n\n"
+        "❌ <i>Bekor qilish uchun /cancel deb yozing.</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")]])
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.message(VideoCreationState.waiting_for_topic)
+async def process_video_topic(message: Message, state: FSMContext):
+    text = (message.text or "").strip()
+    if text.startswith("/cancel"):
+        await state.clear()
+        await message.answer("Video yaratish bekor qilindi.", reply_markup=main_menu_keyboard(message.from_user.id))
+        return
+
+    if len(text) < 3:
+        await message.answer("⚠️ Mavzu juda qisqa. Iltimos, batafsilroq mavzu kiriting:")
+        return
+
+    await state.update_data(video_topic=text)
+    await state.set_state(VideoCreationState.waiting_for_duration)
+
+    await message.answer(
+        f"🎬 Tanlangan mavzu: <b>«{text}»</b>\n\n"
+        "⏱ <b>Videoning davomiyligini tanlang:</b>\n\n"
+        "• ⚡️ <b>30 soniya:</b> Tezkor rolik (3 ta bog'langan sahna)\n"
+        "• 📱 <b>1 daqiqa:</b> Reels / Shorts / TikTok (6 ta sahna)\n"
+        "• 🎬 <b>3 daqiqa:</b> To'liq film / Hujjatli lavha (15 ta sahna)",
+        parse_mode="HTML",
+        reply_markup=video_duration_keyboard(),
+    )
+
+
+@router.callback_query(F.data.startswith("v_dur_"))
+async def cb_video_duration(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    preset = callback.data.replace("v_dur_", "")
+    await state.update_data(video_duration=preset)
+    await state.set_state(VideoCreationState.waiting_for_voice)
+
+    dur_labels = {
+        "30s": "⚡️ 30 soniya (3 sahna)",
+        "60s": "📱 1 daqiqa (6 sahna)",
+        "180s": "🎬 3 daqiqa (15 sahna)",
+    }
+
+    await safe_edit_or_answer(
+        callback.message,
+        f"⏱ Tanlangan davomiylik: <b>{dur_labels.get(preset, preset)}</b>\n\n"
+        "🎙 <b>Diktorni (Ovozni) tanlang:</b>\n\n"
+        "Videongiz qaysi professional AI ovozida bo'lishini xohlaysiz?",
+        reply_markup=video_voice_keyboard(),
+    )
+
+
+@router.callback_query(F.data.startswith("v_voice_"))
+async def cb_video_voice(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await safe_callback_answer(callback)
+    voice_key = callback.data.replace("v_voice_", "")
+    voice_map = {
+        "madina": "uz-UZ-MadinaNeural",
+        "sardor": "uz-UZ-SardorNeural",
+    }
+    selected_voice = voice_map.get(voice_key, "uz-UZ-MadinaNeural")
+
+    data = await state.get_data()
+    topic = data.get("video_topic", "AI Video")
+    duration_preset = data.get("video_duration", "60s")
+    await state.clear()
+
+    user_id = callback.from_user.id
+    user = database.get_user(user_id)
+    is_vip = bool(user.get("is_vip", False)) if user else False
+    is_user_adm = is_admin(user_id)
+
+    cost_map = {"30s": 1, "60s": 2, "180s": 3}
+    required_slides = cost_map.get(duration_preset, 1)
+
+    if not is_vip and not is_user_adm:
+        slides_left = user.get("slides_left", 0) if user else 0
+        if slides_left < required_slides:
+            await callback.message.edit_text(
+                f"⚠️ Ushbu video uchun hisobingizda kamida <b>{required_slides} ta slayd</b> bo'lishi kerak.\n"
+                f"Sizda: <b>{slides_left} ta</b> bor.",
+                parse_mode="HTML",
+                reply_markup=main_menu_keyboard(user_id),
+            )
+            return
+        database.use_slides(user_id, count=required_slides, is_admin=is_user_adm)
+
+    dur_labels = {
+        "30s": "30 soniya",
+        "60s": "1 daqiqa (Reels)",
+        "180s": "3 daqiqa (To'liq film)",
+    }
+
+    status_msg = await callback.message.edit_text(
+        f"🎬 <b>AI Video yaratish boshlandi!</b>\n\n"
+        f"📌 Mavzu: <b>{topic}</b>\n"
+        f"⏱ Davomiyligi: <b>{dur_labels.get(duration_preset, duration_preset)}</b>\n"
+        f"🎙 Ovoz: <b>{'Madina (Ayol)' if 'Madina' in selected_voice else 'Sardor (Erkak)'}</b>\n\n"
+        f"⏳ <code>[ ▱▱▱▱▱▱▱▱▱▱ ] 5%</code>\n"
+        f"<i>Iltimos kuting, film tayyorlanmoqda...</i>",
+        parse_mode="HTML",
+    )
+
+    asyncio.create_task(
+        execute_video_generation(
+            topic=topic,
+            duration_preset=duration_preset,
+            voice=selected_voice,
+            user_id=user_id,
+            status_msg=status_msg,
+            target_msg=callback.message,
+            bot=bot,
+        )
+    )
+
+
+async def execute_video_generation(
+    topic: str,
+    duration_preset: str,
+    voice: str,
+    user_id: int,
+    status_msg: Message,
+    target_msg: Message,
+    bot: Bot,
+):
+    """Orqa fonda videoni xavfsiz va uzluksiz generatsiya qilish."""
+    last_update_text = ""
+
+    async def on_progress(pct: int, desc: str):
+        nonlocal last_update_text
+        filled = max(0, min(10, pct // 10))
+        bar = f"<code>{'▰' * filled}{'▱' * (10 - filled)}</code> <b>{pct}%</b>"
+        text = (
+            f"🎬 <b>AI Video Yaratilmoqda...</b>\n\n"
+            f"📌 Mavzu: <b>{topic}</b>\n"
+            f"📊 Holat: {bar}\n\n"
+            f"{desc}"
+        )
+        if text != last_update_text:
+            last_update_text = text
+            try:
+                await status_msg.edit_text(text, parse_mode="HTML")
+            except Exception:
+                pass
+
+    try:
+        video_path = await video_service.create_ai_video_pipeline(
+            topic=topic,
+            duration_preset=duration_preset,
+            voice=voice,
+            progress_callback=on_progress,
+        )
+
+        if not video_path or not os.path.exists(video_path):
+            await status_msg.edit_text(
+                "❌ <b>Videoni yaratishda xatolik yuz berdi.</b>\n"
+                "Iltimos, birozdan so'ng qayta urinib ko'ring yoki mavzuni boshqacharoq yozing.",
+                parse_mode="HTML",
+                reply_markup=main_menu_keyboard(user_id),
+            )
+            return
+
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        dur_labels = {
+            "30s": "30 soniya",
+            "60s": "1 daqiqa (Reels)",
+            "180s": "3 daqiqa (Film)",
+        }
+
+        caption = (
+            f"🎬 <b>{topic}</b>\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"⏱ <b>Davomiyligi:</b> {dur_labels.get(duration_preset, duration_preset)}\n"
+            f"🎙 <b>Ovoz:</b> {'Madina (Ayol)' if 'Madina' in voice else 'Sardor (Erkak)'}\n"
+            f"🎞 <b>Format:</b> 16:9 HD MP4 (Kinematik Kamera & Subtitrlar)\n\n"
+            f"🚀 <i>@SlaydchiAkabot orqali tayyorlandi!</i>"
+        )
+
+        finish_kb = InlineKeyboardMarkup(
+            inline_keyboard=[
+                [InlineKeyboardButton(text="🎬 Yangi Video Yaratish", callback_data="btn_create_video")],
+                [
+                    InlineKeyboardButton(text="🚀 Slayd Tayyorlash", callback_data="btn_create_slide"),
+                    InlineKeyboardButton(text="📝 Mustaqil Ish", callback_data="btn_create_essay"),
+                ],
+                [InlineKeyboardButton(text="🔙 Bosh Menyu", callback_data="btn_cancel")],
+            ]
+        )
+
+        await target_msg.answer_video(
+            video=FSInputFile(video_path),
+            caption=caption,
+            parse_mode="HTML",
+            reply_markup=finish_kb,
+        )
+
+        try:
+            if os.path.exists(video_path):
+                os.remove(video_path)
+        except Exception:
+            pass
+
+    except Exception as e:
+        logger.error(f"execute_video_generation error: {e}", exc_info=True)
+        try:
+            await status_msg.edit_text(
+                "❌ <b>Videoni tayyorlashda xatolik yuz berdi.</b>\nIltimos, qayta urinib ko'ring.",
+                reply_markup=main_menu_keyboard(user_id),
+                parse_mode="HTML",
             )
         except Exception:
             pass

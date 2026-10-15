@@ -749,6 +749,22 @@ def use_slide(user_id: int, is_admin: bool = False):
     conn.close()
 
 
+def use_slides(user_id: int, count: int = 1, is_admin: bool = False):
+    if is_admin:
+        return
+    user = get_user(user_id)
+    if user and user.get("is_vip", 0) == 1:
+        return
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(
+        "UPDATE users SET slides_left = CASE WHEN slides_left >= ? THEN slides_left - ? ELSE 0 END WHERE user_id = ?",
+        (count, count, user_id),
+    )
+    conn.commit()
+    conn.close()
+
+
 def add_slides_to_user(user_id: int, count: int):
     conn = get_connection()
     cursor = conn.cursor()
