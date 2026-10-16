@@ -3,6 +3,9 @@ import json
 import logging
 import os
 import sys
+import io
+import uuid
+from urllib.parse import quote_plus
 from typing import Dict, Any, Optional, Tuple
 
 from aiogram import Bot, Dispatcher, F, Router
@@ -29,6 +32,7 @@ from aiohttp import web
 
 import config
 import database
+import gemini_service
 from document_service import (
     extract_text_from_pdf,
     extract_text_from_docx,
@@ -47,6 +51,13 @@ from gemini_service import (
     DefenseEvaluation,
     PresentationContent,
     SlideContent,
+    analyze_image_and_extract_topic,
+    analyze_voice_and_extract_command,
+    generate_quiz_duel_questions,
+    VisionExtractionResult,
+    VoiceCommandResult,
+    QuizQuestion,
+    QuizDuelPack,
 )
 from slide_designer import (
     create_presentation_file,
@@ -165,6 +176,14 @@ class VideoCreationState(StatesGroup):
     waiting_for_topic = State()
     waiting_for_duration = State()
     waiting_for_voice = State()
+
+
+class QuizDuelState(StatesGroup):
+    answering_question = State()
+
+
+class PhotoToSlideState(StatesGroup):
+    waiting_for_photo = State()
 
 
 
@@ -327,6 +346,10 @@ def main_menu_keyboard(user_id: int) -> InlineKeyboardMarkup:
         [
             InlineKeyboardButton(text="🚀 Yangi Slayd Yaratish", callback_data="btn_create_slide"),
             InlineKeyboardButton(text="🎬 AI Video (Film/Rolik)", callback_data="btn_create_video"),
+        ],
+        [
+            InlineKeyboardButton(text="📸 Rasmdan Slayd (OCR)", callback_data="btn_photo_to_slide"),
+            InlineKeyboardButton(text="⚔️ Bilimlar Jangi (AI Duel)", callback_data="btn_quiz_duel"),
         ],
         [
             InlineKeyboardButton(text="📝 Mustaqil Ish (Word & Qo'lda A4)", callback_data="btn_create_essay"),
@@ -584,6 +607,17 @@ def video_voice_keyboard() -> InlineKeyboardMarkup:
     )
 
 
+def build_quiz_question_keyboard(options: list) -> InlineKeyboardMarkup:
+    prefixes = ["A", "B", "C", "D"]
+    rows = []
+    for idx, opt in enumerate(options):
+        prefix = prefixes[idx] if idx < len(prefixes) else f"{idx+1}"
+        short_opt = opt if len(opt) < 40 else opt[:38] + "..."
+        rows.append([InlineKeyboardButton(text=f"{prefix}) {short_opt}", callback_data=f"qans_{idx}")])
+    rows.append([InlineKeyboardButton(text="🏳️ Taslim bo'lish (Chiqish)", callback_data="quiz_giveup")])
+    return InlineKeyboardMarkup(inline_keyboard=rows)
+
+
 def admin_menu_keyboard() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(
         inline_keyboard=[
@@ -837,6 +871,82 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
                 bot_username=bot_info.username,
             )
             await message.answer(lb_text, parse_mode="HTML", reply_markup=lb_kb, disable_web_page_preview=True)
+            return
+
+        elif arg.startswith("duel_"):
+            duel_id = arg[5:].strip()
+            duel = database.get_quiz_duel(duel_id)
+            if not duel:
+                await message.answer(
+                    "⚠️ Kechirasiz, bunday duel topilmadi yoki eskirgan.",
+                    reply_markup=main_menu_keyboard(user_id),
+                )
+                return
+
+            if duel.get("status") == "finished":
+                c_sc = duel.get("creator_score", 0)
+                o_sc = duel.get("opponent_score", 0)
+                await message.answer(
+                    f"⚠️ <b>Ushbu duel allaqachon yakunlangan!</b>\n\n"
+                    f"🎯 <b>Jang natijasi:</b>\n"
+                    f"  • Duel boshlovchisi: <b>{c_sc} ball</b>\n"
+                    f"  • Raqib: <b>{o_sc} ball</b>\n\n"
+                    f"O'zingiz yangi duel boshlab, do'stlaringizni jangga chorlashingiz mumkin!",
+                    parse_mode="HTML",
+                    reply_markup=main_menu_keyboard(user_id),
+                )
+                return
+
+            if duel["creator_id"] == user_id:
+                bot_info = await bot.get_me()
+                inv_link = f"https://t.me/{bot_info.username}?start=duel_{duel_id}"
+                sh_text = quote_plus(f"⚔️ Men AI Viktorina Duelida 5 tadan {duel.get('creator_score', 0)} ball to'pladim! Meni yuta olasanmi? Bellashuvga kir!")
+                sh_url = f"https://t.me/share/url?url={inv_link}&text={sh_text}"
+                await message.answer(
+                    f"⚠️ <b>Bu siz yaratgan duel!</b>\n\n"
+                    f"🎯 Siz to'plagan ball: <b>{duel.get('creator_score', 0)} / 5</b>\n\n"
+                    f"Ushbu havolani do'stingizga yuboring, toki u siz bilan bellasha olsin:\n"
+                    f"<code>{inv_link}</code>",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="🚀 Do'stga yuborish (Ulashish)", url=sh_url)],
+                        [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+                    ]),
+                )
+                return
+
+            # Opponent is entering the duel!
+            try:
+                questions = json.loads(duel["questions_json"])
+            except Exception:
+                await message.answer(
+                    "Xatolik: Duel savollarini yuklab bo'lmadi.",
+                    reply_markup=main_menu_keyboard(user_id),
+                )
+                return
+
+            await state.set_state(QuizDuelState.answering_question)
+            await state.update_data(
+                mode="pvp_opponent",
+                duel_id=duel_id,
+                category=duel.get("category", "Aralash"),
+                questions=questions,
+                current_q=0,
+                score=0,
+                creator_id=duel["creator_id"],
+                creator_score=duel.get("creator_score", 0),
+            )
+
+            first_q = questions[0]
+            kb = build_quiz_question_keyboard(first_q["options"])
+            q_text = (
+                f"⚔️ <b>AI Viktorina Dueliga xush kelibsiz!</b>\n"
+                f"Siz do'stingiz chorlagan intellektual jangga kirdingiz! Sizga 5 ta savol beriladi.\n\n"
+                f"━━━━━━━━━━━━━━━━━━━\n"
+                f"❓ <b>Savol 1 / {len(questions)}</b> | <i>{duel.get('category', 'Aralash')}</i>\n\n"
+                f"<b>{first_q['question']}</b>"
+            )
+            await message.answer(q_text, parse_mode="HTML", reply_markup=kb)
             return
 
     text = (
@@ -1993,22 +2103,27 @@ async def process_mode_selected(callback: CallbackQuery, state: FSMContext):
 
 @router.message(F.voice, SlideCreationState.waiting_for_topic)
 async def process_voice_topic(message: Message, state: FSMContext, bot: Bot):
-    status_msg = await message.answer("🎙 <i>Ovoz tahlil qilinmoqda...</i>", parse_mode="HTML")
+    status_msg = await message.answer("🎙 <i>AI ovozni tahlil qilmoqda va mavzuni aniqlamoqda...</i>", parse_mode="HTML")
     try:
         file_info = await bot.get_file(message.voice.file_id)
         voice_io = await bot.download_file(file_info.file_path)
         voice_bytes = voice_io.read()
 
-        topic = await transcribe_voice_with_gemini(voice_bytes, mime_type="audio/ogg")
-        if not topic or len(topic) < 3:
-            topic = "Ovozli xabar asosida taqdimot"
+        voice_res = await gemini_service.analyze_voice_and_extract_command(voice_bytes, mime_type="audio/ogg")
+        topic = voice_res.topic or "Ovozli xabar asosida taqdimot"
+        slide_count = voice_res.slide_count or 5
 
-        await status_msg.delete()
-        await state.update_data(topic=topic, is_doc=False)
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        await state.update_data(topic=topic, is_doc=False, custom_slide_count=slide_count)
         await state.set_state(SlideCreationState.waiting_for_author)
 
         text = (
-            f"🎙 <b>Aniqlangan mavzu:</b> <i>{topic}</i>\n\n"
+            f"🎙 <b>Aniqlangan mavzu:</b> <i>{topic}</i>\n"
+            f"🗣 <i>\"{voice_res.transcription}\"</i>\n\n"
             "✍️ <b>Slaydlar tagida muallif (tayyorlovchi) nomi chiqsinmi?</b>\n"
             "<i>Masalan:</i> <code>Alisher Navoiy</code> yoki <code>Toshkent Davlat Universiteti</code>\n\n"
             "Ismingizni yozing yoki o'tkazib yuboring:"
@@ -2016,7 +2131,10 @@ async def process_voice_topic(message: Message, state: FSMContext, bot: Bot):
         await message.answer(text, parse_mode="HTML", reply_markup=author_skip_keyboard())
     except Exception as e:
         logger.error(f"Ovozda xatolik: {e}")
-        await status_msg.edit_text("Ovozni o'qishda xatolik yuz berdi. Matn ko'rinishida yozib yuboring.")
+        try:
+            await status_msg.edit_text("Ovozni o'qishda xatolik yuz berdi. Matn ko'rinishida yozib yuboring.")
+        except Exception:
+            pass
 
 
 @router.message(F.document, SlideCreationState.waiting_for_topic)
@@ -2066,24 +2184,28 @@ async def process_document_topic(message: Message, state: FSMContext, bot: Bot):
 @router.message(F.photo, SlideCreationState.waiting_for_topic)
 async def process_photo_topic(message: Message, state: FSMContext, bot: Bot):
     photo = message.photo[-1]
-    status_msg = await message.answer("📸 <i>Kitob/konspekt rasmi tahlil qilinmoqda (matnlar o'qilmoqda)...</i>", parse_mode="HTML")
+    status_msg = await message.answer("📸 <i>AI Vision: Kitob/konspekt rasmi tahlil qilinmoqda (qo'lyozma o'qilmoqda)...</i>", parse_mode="HTML")
     try:
         file_info = await bot.get_file(photo.file_id)
         photo_io = await bot.download_file(file_info.file_path)
         photo_bytes = photo_io.read()
 
-        topic, doc_text = await extract_text_and_topic_from_image(photo_bytes, mime_type="image/jpeg")
-        if not doc_text or len(doc_text) < 25:
-            await status_msg.edit_text("Rasmdagi matnlar aniq ko'rinmadi. Iltimos, sifatliroq rasm yuboring yoki mavzuni yozib yuboring.")
-            return
+        vis_res = await gemini_service.analyze_image_and_extract_topic(photo_bytes, caption=message.caption or "")
+        topic = vis_res.topic or "Rasmdagi konspekt"
+        doc_text = vis_res.extracted_text or vis_res.summary
 
-        await status_msg.delete()
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
         await state.update_data(topic=topic, doc_text=doc_text, is_doc=True)
         await state.set_state(SlideCreationState.waiting_for_author)
 
+        preview = doc_text[:120] + "..." if len(doc_text) > 120 else doc_text
         text = (
             f"📸 <b>Rasmdan aniqlangan mavzu:</b> <i>{topic}</i>\n"
-            f"📝 <b>O'qilgan konspekt:</b> <i>{doc_text[:140]}...</i>\n\n"
+            f"📝 <b>O'qilgan konspekt:</b> <i>{preview}</i>\n\n"
             "✍️ <b>Slaydlar tagida muallif (tayyorlovchi) nomi chiqsinmi?</b>\n"
             "<i>Masalan:</i> <code>Alisher Navoiy</code> yoki <code>Toshkent Davlat Universiteti</code>\n\n"
             "Ismingizni yozing yoki o'tkazib yuboring:"
@@ -2091,7 +2213,10 @@ async def process_photo_topic(message: Message, state: FSMContext, bot: Bot):
         await message.answer(text, parse_mode="HTML", reply_markup=author_skip_keyboard())
     except Exception as e:
         logger.error(f"Rasmni o'qishda xatolik: {e}")
-        await status_msg.edit_text("Rasmni tahlil qilishda xatolik yuz berdi. Qaytadan urinib ko'ring.")
+        try:
+            await status_msg.edit_text("Rasmni tahlil qilishda xatolik yuz berdi. Qaytadan urinib ko'ring.")
+        except Exception:
+            pass
 
 
 @router.message(SlideCreationState.waiting_for_topic)
@@ -5838,8 +5963,294 @@ async def cb_admin_award_tournament_confirm(callback: CallbackQuery, bot: Bot):
     )
 
 
+# ------------------ 📸 RASMDAN / KONSPEKTDAN SLAYD (AI VISION OCR) ------------------
+@router.callback_query(F.data == "btn_photo_to_slide")
+async def cb_photo_to_slide_info(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await safe_callback_answer(callback)
+    user_id = callback.from_user.id
+
+    is_subbed, unsub_channels = await check_channel_subscription(bot, user_id)
+    if not is_subbed:
+        await safe_edit_or_answer(
+            callback.message,
+            "⚠️ Ushbu xizmatdan foydalanish uchun homiy kanal(lar)ga a'zo bo'ling:",
+            reply_markup=channel_sub_keyboard(unsub_channels),
+        )
+        return
+
+    if not await check_phone_gate(callback, user_id, bot):
+        return
+
+    await state.set_state(PhotoToSlideState.waiting_for_photo)
+    text = (
+        "📸 <b>Rasmdan / Konspektdan bir zumda Slayd yoki Hujjat!</b> 🪄\n\n"
+        "Daftaringizdagi qo'lda yozilgan <b>konspekt</b>, <b>kitob sahifasi</b>, doskadagi yozuvlar yoki topshiriq varaqasini rasmga olib yuboring.\n\n"
+        "✨ <b>AI Vision imkoniyatlari:</b>\n"
+        "• Qo'lyozma va qiyin o'qiladigan yozuvlarni yuqori aniqlikda o'qiydi (OCR)\n"
+        "• Asosiy mavzu va mazmunini ajratib beradi\n"
+        "• Bir bosishda <b>16:9 Slayd</b>, <b>Mustaqil ish</b> yoki <b>Maqola</b>ga aylantiradi!\n\n"
+        "📷 <i>Iltimos, rasmni to'g'ridan-to'g'ri yuboring:</i>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")]
+    ])
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+async def process_photo_with_ai_vision(message: Message, state: FSMContext, bot: Bot):
+    user_id = message.from_user.id
+    photo = message.photo[-1]
+    caption = message.caption or ""
+
+    status_msg = await message.answer(
+        "📸 <i>AI Vision konspekt va rasmni tahlil qilmoqda (qo'lyozma va matnlar o'qilmoqda)...</i>",
+        parse_mode="HTML"
+    )
+    try:
+        file_info = await bot.get_file(photo.file_id)
+        photo_io = await bot.download_file(file_info.file_path)
+        photo_bytes = photo_io.read()
+
+        res = await gemini_service.analyze_image_and_extract_topic(photo_bytes, caption=caption)
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        topic = res.topic if (res.topic and len(res.topic) >= 2) else "Rasmdagi konspekt asosida tahlil"
+        doc_text = res.extracted_text or res.summary or topic
+
+        await state.update_data(
+            topic=topic,
+            doc_text=doc_text,
+            vision_summary=res.summary,
+            is_doc=True,
+            suggested_action=res.suggested_action,
+        )
+
+        preview_text = doc_text[:160] + "..." if len(doc_text) > 160 else doc_text
+        text = (
+            "📸 <b>AI Vision Tahlili Muvaffaqiyatli Yakunlandi!</b> ✨\n\n"
+            f"📌 <b>Aniqlangan mavzu:</b> <b>{topic}</b>\n"
+            f"💡 <b>Qisqacha mazmun:</b> <i>{res.summary}</i>\n\n"
+            f"📝 <b>O'qilgan matndan namuna:</b>\n"
+            f"<i>«{preview_text}»</i>\n\n"
+            "Ushbu ma'lumotlar asosida qanday hujjat tayyorlaymiz?"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Taqdimot (Slayd) yaratish", callback_data="photo_act_slide")],
+            [InlineKeyboardButton(text="📝 Mustaqil Ish (Word & Qo'lda A4)", callback_data="photo_act_essay")],
+            [InlineKeyboardButton(text="📄 Ilmiy Maqola / Tezis", callback_data="photo_act_article")],
+            [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
+        ])
+        await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+    except Exception as e:
+        logger.error(f"Vision tahlilida xatolik: {e}")
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        await message.answer(
+            "⚠️ Rasmni tahlil qilishda xatolik yuz berdi. Iltimos, rasmni sifatliroq qilib qayta yuboring yoki mavzuni yozing.",
+            reply_markup=main_menu_keyboard(user_id)
+        )
+
+
+@router.callback_query(F.data == "photo_act_slide")
+async def cb_photo_act_slide(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    data = await state.get_data()
+    topic = data.get("topic", "Rasmdagi konspekt")
+    doc_text = data.get("doc_text", "")
+    user_id = callback.from_user.id
+
+    if not database.has_slides_left(user_id, is_admin(user_id)):
+        await callback.message.answer(
+            "⚠️ Sizning limitingiz tugagan. Yangi slayd yaratish uchun tarif xarid qiling yoki bonus oling.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
+                [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")]
+            ])
+        )
+        return
+
+    await state.set_state(SlideCreationState.waiting_for_author)
+    await state.update_data(topic=topic, doc_text=doc_text, is_doc=bool(doc_text))
+    text = (
+        f"📸 <b>Tanlangan mavzu:</b> <i>{topic}</i>\n\n"
+        "✍️ <b>Slaydlar tagida muallif (tayyorlovchi) nomi chiqsinmi?</b>\n"
+        "<i>Masalan:</i> <code>Alisher Navoiy</code> yoki <code>Toshkent Davlat Universiteti</code>\n\n"
+        "Ismingizni yozing yoki o'tkazib yuboring:"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=author_skip_keyboard())
+
+
+@router.callback_query(F.data == "photo_act_essay")
+async def cb_photo_act_essay(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    data = await state.get_data()
+    topic = data.get("topic", "Rasmdagi konspekt")
+
+    await state.set_state(EssayCreationState.waiting_for_author)
+    await state.update_data(topic=topic)
+    text = (
+        f"📝 <b>Mustaqil ish mavzusi:</b> <i>{topic}</i>\n\n"
+        "✍️ <b>Titul varag'idagi talaba (muallif) ism-familiyasi:</b>\n"
+        "<i>Masalan:</i> <code>Aliyev Vali</code>\n\n"
+        "Ismingizni yozing yoki o'tkazib yuboring:"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=essay_author_skip_keyboard())
+
+
+@router.callback_query(F.data == "photo_act_article")
+async def cb_photo_act_article(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    data = await state.get_data()
+    topic = data.get("topic", "Rasmdagi konspekt")
+
+    await state.set_state(ArticleCreationState.waiting_for_author)
+    await state.update_data(topic=topic)
+    text = (
+        f"📄 <b>Maqola mavzusi:</b> <i>{topic}</i>\n\n"
+        "✍️ <b>Muallif(lar) to'liq F.I.Sh:</b>\n"
+        "<i>Masalan:</i> <code>Karimov Jasur Baxtiyorovich</code>\n\n"
+        "Muallif nomini kiriting yoki o'tkazib yuboring:"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=article_author_skip_keyboard())
+
+
+# ------------------ 🎙 OVOZLI XABAR ORQALI YARATISH (AI VOICE COMMAND) ------------------
+async def process_voice_with_ai(message: Message, state: FSMContext, bot: Bot):
+    user_id = message.from_user.id
+    voice_obj = message.voice or message.audio
+    mime = getattr(voice_obj, "mime_type", "audio/ogg") or "audio/ogg"
+
+    status_msg = await message.answer(
+        "🎙 <i>AI ovozingizni tinglamoqda va buyruqni tahlil qilmoqda...</i>",
+        parse_mode="HTML"
+    )
+    try:
+        file_info = await bot.get_file(voice_obj.file_id)
+        audio_io = await bot.download_file(file_info.file_path)
+        audio_bytes = audio_io.read()
+
+        res = await gemini_service.analyze_voice_and_extract_command(audio_bytes, mime_type=mime)
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        topic = res.topic if (res.topic and len(res.topic) >= 2) else "Ovozli xabar mavzusi"
+
+        await state.update_data(
+            topic=topic,
+            transcription=res.transcription,
+            voice_action=res.action,
+            slide_count=res.slide_count or 5,
+            language=res.language or "uz",
+            is_doc=False,
+        )
+
+        action_names = {
+            "slide": f"📊 Taqdimot (Slayd — {res.slide_count} ta)",
+            "essay": "📝 Mustaqil Ish (Word & Qo'lda A4)",
+            "article": "📄 Ilmiy Maqola / Tezis",
+            "video": "🎬 AI Video Rolik",
+            "chat": "💡 Umumiy ma'lumot",
+        }
+        action_title = action_names.get(res.action, f"📊 Taqdimot ({res.slide_count} ta slayd)")
+
+        text = (
+            "🎙 <b>Ovozli buyruq muvaffaqiyatli qabul qilindi!</b> ⚡️\n\n"
+            f"🗣 <b>Siz aytgan so'zlar:</b>\n<i>«{res.transcription}»</i>\n\n"
+            f"🎯 <b>Aniqlangan mavzu:</b> <b>{topic}</b>\n"
+            f"⚙️ <b>Tavsiya etilgan amal:</b> <b>{action_title}</b>\n\n"
+            "Ushbu buyruq asosida qaysi xizmatni ishga tushiramiz?"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Taqdimot (Slayd) yaratish", callback_data="voice_act_slide")],
+            [InlineKeyboardButton(text="📝 Mustaqil Ish tayyorlash", callback_data="voice_act_essay")],
+            [InlineKeyboardButton(text="🎬 AI Video yaratish", callback_data="voice_act_video")],
+            [InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")],
+        ])
+        await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+    except Exception as e:
+        logger.error(f"Voice tahlilida xatolik: {e}")
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        await message.answer(
+            "⚠️ Ovozli xabarni tahlil qilishda xatolik yuz berdi. Iltimos, qaytadan yuboring yoki matn yozing.",
+            reply_markup=main_menu_keyboard(user_id)
+        )
+
+
+@router.callback_query(F.data == "voice_act_slide")
+async def cb_voice_act_slide(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    data = await state.get_data()
+    topic = data.get("topic", "Ovozli mavzu")
+    user_id = callback.from_user.id
+
+    if not database.has_slides_left(user_id, is_admin(user_id)):
+        await callback.message.answer(
+            "⚠️ Sizning limitingiz tugagan. Yangi slayd yaratish uchun tarif xarid qiling yoki bonus oling.",
+            reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                [InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")],
+                [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")]
+            ])
+        )
+        return
+
+    await state.set_state(SlideCreationState.waiting_for_author)
+    await state.update_data(topic=topic, is_doc=False)
+    text = (
+        f"🎯 <b>Mavzu:</b> <i>{topic}</i>\n\n"
+        "✍️ <b>Slaydlar tagida muallif (tayyorlovchi) nomi chiqsinmi?</b>\n"
+        "<i>Masalan:</i> <code>Alisher Navoiy</code> yoki <code>Toshkent Davlat Universiteti</code>\n\n"
+        "Ismingizni yozing yoki o'tkazib yuboring:"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=author_skip_keyboard())
+
+
+@router.callback_query(F.data == "voice_act_essay")
+async def cb_voice_act_essay(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    data = await state.get_data()
+    topic = data.get("topic", "Ovozli mavzu")
+
+    await state.set_state(EssayCreationState.waiting_for_author)
+    await state.update_data(topic=topic)
+    text = (
+        f"📝 <b>Mustaqil ish mavzusi:</b> <i>{topic}</i>\n\n"
+        "✍️ <b>Titul varag'idagi talaba (muallif) ism-familiyasi:</b>\n"
+        "<i>Masalan:</i> <code>Aliyev Vali</code>\n\n"
+        "Ismingizni yozing yoki o'tkazib yuboring:"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=essay_author_skip_keyboard())
+
+
+@router.callback_query(F.data == "voice_act_video")
+async def cb_voice_act_video(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    data = await state.get_data()
+    topic = data.get("topic", "Ovozli mavzu")
+
+    await state.set_state(VideoCreationState.waiting_for_duration)
+    await state.update_data(topic=topic)
+    text = (
+        f"🎬 <b>AI Video yaratish</b>\n\n"
+        f"📌 <b>Mavzu:</b> <b>{topic}</b>\n\n"
+        f"⏱ <b>Video davomiyligini tanlang:</b>"
+    )
+    await safe_edit_or_answer(callback.message, text, reply_markup=video_duration_keyboard())
+
+
 # To'g'ridan-to'g'ri yuborilgan audio, rasm, hujjat va mavzu matnlarini qabul qilish
-@router.message(F.voice)
+@router.message(F.voice | F.audio)
 async def handle_direct_voice(message: Message, state: FSMContext, bot: Bot):
     curr_state = await state.get_state()
     if curr_state:
@@ -5854,8 +6265,7 @@ async def handle_direct_voice(message: Message, state: FSMContext, bot: Bot):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]])
         )
         return
-    await state.set_state(SlideCreationState.waiting_for_topic)
-    await process_voice_topic(message, state, bot)
+    await process_voice_with_ai(message, state, bot)
 
 
 @router.message(F.document)
@@ -5877,10 +6287,11 @@ async def handle_direct_document(message: Message, state: FSMContext, bot: Bot):
     await process_document_topic(message, state, bot)
 
 
+@router.message(F.photo, PhotoToSlideState.waiting_for_photo)
 @router.message(F.photo)
 async def handle_direct_photo(message: Message, state: FSMContext, bot: Bot):
     curr_state = await state.get_state()
-    if curr_state:
+    if curr_state and curr_state != PhotoToSlideState.waiting_for_photo:
         return
     user_id = message.from_user.id
     if not await check_phone_gate(message, user_id, bot):
@@ -5892,8 +6303,7 @@ async def handle_direct_photo(message: Message, state: FSMContext, bot: Bot):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]])
         )
         return
-    await state.set_state(SlideCreationState.waiting_for_topic)
-    await process_photo_topic(message, state, bot)
+    await process_photo_with_ai_vision(message, state, bot)
 
 
 @router.message(F.text & ~F.text.startswith("/"))
@@ -5913,6 +6323,355 @@ async def handle_direct_text(message: Message, state: FSMContext, bot: Bot):
         return
     await state.set_state(SlideCreationState.waiting_for_topic)
     await process_topic_step(message, state, bot)
+
+
+# ------------------ ⚔️ BILIMLAR JANGI: AI VIKTORINA DUEL ------------------
+@router.message(Command("duel", "viktorina", "jang"))
+async def cmd_quiz_duel_entry(message: Message, state: FSMContext, bot: Bot):
+    await state.clear()
+    user_id = message.from_user.id
+    if not await check_phone_gate(message, user_id, bot):
+        return
+    stats = database.get_user_duel_stats(user_id)
+    text = (
+        "⚔️ <b>«Bilimlar Jangi» — AI Viktorina Dueli</b> 🧠\n\n"
+        "O'zingizni intellektual jangda sinab ko'ring! 5 ta qiziqarli savolga to'g'ri javob bering va sovrinlar yutib oling!\n\n"
+        f"📊 <b>Sizning duel statistikangiz:</b>\n"
+        f"  ├ ⚔️ Jami o'yinlar: <b>{stats['total_duels']} ta</b>\n"
+        f"  ├ 🏆 G'alabalar: <b>{stats['wins']} ta</b>\n"
+        f"  └ ❌ Mag'lubiyatlar: <b>{stats['losses']} ta</b>\n\n"
+        "🎁 <b>G'oliblik bonusi:</b> Do'stingiz bilan duelda g'alaba qozonsangiz hisobingizga <b>+2 ta bepul slayd</b> taqdim etiladi!\n\n"
+        "🎮 <b>O'yin rejimini tanlang:</b>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🤖 AI bilan Yakkama-yakka (Solo sinov)", callback_data="quiz_cat_solo")],
+        [InlineKeyboardButton(text="⚔️ Do'stni Duelga chorlash (PvP)", callback_data="quiz_cat_pvp")],
+        [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+    ])
+    await message.answer(text, parse_mode="HTML", reply_markup=kb)
+
+
+@router.callback_query(F.data == "btn_quiz_duel")
+async def cb_quiz_duel_menu(callback: CallbackQuery):
+    await safe_callback_answer(callback)
+    user_id = callback.from_user.id
+    stats = database.get_user_duel_stats(user_id)
+
+    text = (
+        "⚔️ <b>«Bilimlar Jangi» — AI Viktorina Dueli</b> 🧠\n\n"
+        "O'zingizni intellektual jangda sinab ko'ring! 5 ta qiziqarli savolga to'g'ri javob bering va bilimingizni isbotlang!\n\n"
+        f"📊 <b>Sizning duel statistikangiz:</b>\n"
+        f"  ├ ⚔️ Jami o'yinlar: <b>{stats['total_duels']} ta</b>\n"
+        f"  ├ 🏆 G'alabalar: <b>{stats['wins']} ta</b>\n"
+        f"  └ ❌ Mag'lubiyatlar: <b>{stats['losses']} ta</b>\n\n"
+        "🎁 <b>G'oliblik bonusi:</b> Do'stingiz bilan duelda g'alaba qozonsangiz hisobingizga <b>+2 ta bepul slayd</b> taqdim etiladi!\n\n"
+        "🎮 <b>O'yin rejimini tanlang:</b>"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🤖 AI bilan Yakkama-yakka (Solo sinov)", callback_data="quiz_cat_solo")],
+        [InlineKeyboardButton(text="⚔️ Do'stni Duelga chorlash (PvP)", callback_data="quiz_cat_pvp")],
+        [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+    ])
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data.in_(["quiz_cat_solo", "quiz_cat_pvp"]))
+async def cb_quiz_choose_category(callback: CallbackQuery):
+    await safe_callback_answer(callback)
+    mode = "solo" if callback.data == "quiz_cat_solo" else "pvp"
+    text = (
+        "📚 <b>Viktorina yo'nalishini (mavzusini) tanlang:</b>\n\n"
+        "Sun'iy intellekt qaysi soha bo'yicha savollar tayyorlasin?"
+    )
+    kb = InlineKeyboardMarkup(inline_keyboard=[
+        [InlineKeyboardButton(text="🧠 Mantiqiy & Zakovat (Aralash)", callback_data=f"qset_{mode}_aralash")],
+        [InlineKeyboardButton(text="💻 Dasturlash & IT Texnologiyalar", callback_data=f"qset_{mode}_it")],
+        [InlineKeyboardButton(text="🇺🇿 O'zbekiston tarixi & Madaniyat", callback_data=f"qset_{mode}_tarix")],
+        [InlineKeyboardButton(text="🌍 Dunyo Geografiyasi & Mo'jizalar", callback_data=f"qset_{mode}_dunyo")],
+        [InlineKeyboardButton(text="🚀 Fan, Fizika & Koinot", callback_data=f"qset_{mode}_fan")],
+        [InlineKeyboardButton(text="🔙 Orqaga", callback_data="btn_quiz_duel")],
+    ])
+    await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+
+
+@router.callback_query(F.data.startswith("qset_"))
+async def cb_quiz_start_game(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await safe_callback_answer(callback)
+    parts = callback.data.split("_")
+    mode_raw = parts[1]
+    cat_raw = parts[2]
+
+    cat_names = {
+        "aralash": "Mantiqiy & Zakovat (Aralash)",
+        "it": "Dasturlash & IT Texnologiyalar",
+        "tarix": "O'zbekiston tarixi & Madaniyat",
+        "dunyo": "Dunyo Geografiyasi & Mo'jizalar",
+        "fan": "Fan, Fizika & Koinot",
+    }
+    category_title = cat_names.get(cat_raw, "Aralash bilimlar")
+    user_id = callback.from_user.id
+
+    status_msg = await callback.message.answer("⏳ <i>AI qiziqarli savollarni saralamoqda...</i>", parse_mode="HTML")
+    try:
+        pack = await gemini_service.generate_quiz_duel_questions(category=category_title, question_count=5)
+        questions = [q.model_dump() for q in pack.questions]
+
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+
+        if not questions:
+            await callback.message.answer("Savollarni tayyorlashda xatolik yuz berdi. Iltimos qaytadan urinib ko'ring.")
+            return
+
+        duel_id = None
+        if mode_raw == "pvp":
+            duel_id = uuid.uuid4().hex[:8]
+            database.create_quiz_duel(
+                duel_id=duel_id,
+                creator_id=user_id,
+                category=category_title,
+                questions_json=json.dumps(questions),
+            )
+
+        fsm_mode = "solo" if mode_raw == "solo" else "pvp_creator"
+        await state.set_state(QuizDuelState.answering_question)
+        await state.update_data(
+            mode=fsm_mode,
+            duel_id=duel_id,
+            category=category_title,
+            questions=questions,
+            current_q=0,
+            score=0,
+        )
+
+        first_q = questions[0]
+        kb = build_quiz_question_keyboard(first_q["options"])
+        intro_badge = "🤖 <b>Solo Sinov</b>" if mode_raw == "solo" else "⚔️ <b>Do'stlar Bellashuvi (1-bosqich: Siz)</b>"
+        q_text = (
+            f"{intro_badge}\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"❓ <b>Savol 1 / {len(questions)}</b> | <i>{category_title}</i>\n\n"
+            f"<b>{first_q['question']}</b>"
+        )
+        await safe_edit_or_answer(callback.message, q_text, reply_markup=kb)
+
+    except Exception as e:
+        logger.error(f"Quiz start xatolik: {e}")
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
+        await callback.message.answer("Xatolik yuz berdi. Iltimos, qaytadan urinib ko'ring.")
+
+
+@router.callback_query(F.data.startswith("qans_"), QuizDuelState.answering_question)
+async def cb_quiz_answer(callback: CallbackQuery, state: FSMContext, bot: Bot):
+    await safe_callback_answer(callback)
+    data = await state.get_data()
+    questions = data.get("questions", [])
+    current_q = data.get("current_q", 0)
+    score = data.get("score", 0)
+    mode = data.get("mode", "solo")
+    category = data.get("category", "Aralash")
+    duel_id = data.get("duel_id")
+
+    if current_q >= len(questions):
+        return
+
+    ans_idx = int(callback.data.split("qans_")[1])
+    q_data = questions[current_q]
+    correct_idx = q_data.get("correct_index", 0)
+    is_correct = (ans_idx == correct_idx)
+
+    if is_correct:
+        score += 1
+        res_header = "✅ <b>To'g'ri javob!</b> (+1 ball)"
+    else:
+        correct_ans = q_data["options"][correct_idx] if 0 <= correct_idx < len(q_data["options"]) else ""
+        res_header = f"❌ <b>Noto'g'ri!</b>\nTo'g'ri javob: <b>{correct_ans}</b>"
+
+    explanation = q_data.get("explanation", "").strip()
+    expl_text = f"\n\n💡 <b>Izoh:</b> <i>{explanation}</i>" if explanation else ""
+
+    next_q = current_q + 1
+    await state.update_data(score=score, current_q=next_q)
+
+    if next_q < len(questions):
+        text = (
+            f"{res_header}{expl_text}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 <b>Joriy hisob:</b> {score} / {next_q}\n\n"
+            f"Keyingi savolga o'tish uchun bosing:"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text=f"Keyingi savol ➡️ ({next_q + 1}/{len(questions)})", callback_data="quiz_next_q")],
+            [InlineKeyboardButton(text="🏳️ Chiqish", callback_data="quiz_giveup")],
+        ])
+        await safe_edit_or_answer(callback.message, text, reply_markup=kb)
+    else:
+        await finish_quiz_flow(callback.message, state, bot, score, len(questions), mode, duel_id, category)
+
+
+@router.callback_query(F.data == "quiz_next_q", QuizDuelState.answering_question)
+async def cb_quiz_next_q(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback)
+    data = await state.get_data()
+    questions = data.get("questions", [])
+    current_q = data.get("current_q", 0)
+    category = data.get("category", "Aralash")
+
+    if current_q >= len(questions):
+        return
+
+    q_data = questions[current_q]
+    kb = build_quiz_question_keyboard(q_data["options"])
+    q_text = (
+        f"❓ <b>Savol {current_q + 1} / {len(questions)}</b> | <i>{category}</i>\n\n"
+        f"<b>{q_data['question']}</b>"
+    )
+    await safe_edit_or_answer(callback.message, q_text, reply_markup=kb)
+
+
+@router.callback_query(F.data == "quiz_giveup", QuizDuelState.answering_question)
+async def cb_quiz_giveup(callback: CallbackQuery, state: FSMContext):
+    await safe_callback_answer(callback, "O'yin bekor qilindi.")
+    await state.clear()
+    user_id = callback.from_user.id
+    await safe_edit_or_answer(
+        callback.message,
+        "🏳️ <b>O'yin bekor qilindi.</b>\n\nIstalgan vaqtda bosh menyudan yangi o'yin boshlashingiz mumkin!",
+        reply_markup=main_menu_keyboard(user_id)
+    )
+
+
+async def finish_quiz_flow(message: Message, state: FSMContext, bot: Bot, score: int, total: int, mode: str, duel_id: Optional[str], category: str):
+    user_id = message.chat.id
+    await state.clear()
+
+    if mode == "solo":
+        bonus_msg = ""
+        if score >= 4:
+            database.add_slides_to_user(user_id, 1)
+            bonus_msg = "\n\n🎁 <b>Ajoyib bilim!</b> 80%+ natija uchun hisobingizga <b>+1 ta bepul slayd</b> taqdim etildi! ⚡️"
+        elif score >= 2:
+            bonus_msg = "\n\n👏 <i>Yaxshi natija! Do'stlaringiz bilan ham bellashib ko'ring!</i>"
+
+        text = (
+            f"🏁 <b>Solo Sinov Yakunlandi!</b> 🧠\n\n"
+            f"📚 Yo'nalish: <b>{category}</b>\n"
+            f"🎯 Sizning to'plagan balingiz: <b>{score} / {total}</b> ({int(score/total*100)}%){bonus_msg}\n\n"
+            f"Endi do'stlaringiz bilan ham bellashib, kim kuchliroq ekanligini sinab ko'ring!"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚔️ Do'stni jangga chorlash (PvP)", callback_data="quiz_cat_pvp")],
+            [InlineKeyboardButton(text="🔄 Yana solo o'ynash", callback_data="quiz_cat_solo")],
+            [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+        ])
+        await safe_edit_or_answer(message, text, reply_markup=kb)
+
+    elif mode == "pvp_creator":
+        database.update_creator_duel_score(duel_id, score)
+        bot_info = await bot.get_me()
+        invite_link = f"https://t.me/{bot_info.username}?start=duel_{duel_id}"
+        share_text = quote_plus(f"⚔️ Men AI Viktorina Duelida 5 tadan {score} ball to'pladim! Meni yuta olasanmi? Bellashuvga kir!")
+        share_url = f"https://t.me/share/url?url={invite_link}&text={share_text}"
+
+        text = (
+            f"🏁 <b>Sizning bosqichingiz yakunlandi!</b> 🏆\n\n"
+            f"🎯 Siz to'plagan ball: <b>{score} / {total}</b>\n\n"
+            f"Endi ushbu duel havolasini do'stingizga yuboring. U ham aynan mana shu 5 ta savolga javob beradi.\n\n"
+            f"⚔️ <b>Qoidalar:</b>\n"
+            f"• Kim ko'p ball to'plasa, o'sha g'olib bo'ladi va <b>+2 ta bepul slayd</b> oladi!\n"
+            f"• Do'stingiz o'yinni tugatgan zahoti ikkingizga ham g'olib haqida xabar boradi.\n\n"
+            f"🔗 <b>Duel havolasi:</b>\n<code>{invite_link}</code>"
+        )
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="🚀 Do'stga yuborish (Telegramda ulashish)", url=share_url)],
+            [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+        ])
+        await safe_edit_or_answer(message, text, reply_markup=kb)
+
+    elif mode == "pvp_opponent":
+        duel = database.get_quiz_duel(duel_id)
+        creator_score = duel.get("creator_score", 0) if duel else 0
+        creator_id = duel.get("creator_id") if duel else None
+
+        opp_score = score
+        user_name = message.chat.first_name or "Do'stingiz"
+
+        if opp_score > creator_score:
+            winner = user_id
+            outcome_opp = (
+                f"🎉 <b>QOYILMAQOM G'ALABA! SIZ YUTDINGIZ!</b> 🏆\n\n"
+                f"Siz {opp_score} ball to'plab, do'stingizni ({creator_score} ball) mag'lub etdingiz!\n"
+                f"🎁 Hisobingizga g'oliblik uchun <b>+2 ta bepul slayd</b> taqdim etildi!"
+            )
+            outcome_creator = (
+                f"😔 <b>Afsuski, ushbu duelda do'stingiz g'alaba qozondi!</b>\n\n"
+                f"🎯 Sizning balingiz: <b>{creator_score}</b>\n"
+                f"🎯 Do'stingiz ({user_name}) bali: <b>{opp_score}</b>\n\n"
+                f"Keyingi safar qasd olish uchun o'zingiz yangi duel yarating!"
+            )
+            database.add_slides_to_user(user_id, 2)
+
+        elif creator_score > opp_score:
+            winner = creator_id
+            outcome_opp = (
+                f"😔 <b>Afsuski, ushbu duelda do'stingiz g'alaba qozondi!</b>\n\n"
+                f"🎯 Do'stingiz to'plagan ball: <b>{creator_score}</b>\n"
+                f"🎯 Sizning balingiz: <b>{opp_score}</b>\n\n"
+                f"Taslim bo'lmang! O'zingiz yangi duel yaratib, do'stingizni yana jangga chorlang!"
+            )
+            outcome_creator = (
+                f"🎉 <b>TABRIKLAYMIZ! SIZ DUELDA G'ALABA QOZONDINGIZ!</b> 🏆\n\n"
+                f"Do'stingiz ({user_name}) sizning taklifingizni qabul qildi va o'yinni tugatdi.\n"
+                f"🎯 Sizning balingiz: <b>{creator_score}</b>\n"
+                f"🎯 Raqib balingiz: <b>{opp_score}</b>\n\n"
+                f"🎁 Hisobingizga g'alaba uchun <b>+2 ta bepul slayd</b> qo'shildi!"
+            )
+            if creator_id:
+                database.add_slides_to_user(creator_id, 2)
+
+        else:
+            winner = None
+            outcome_opp = (
+                f"🤝 <b>DO'STLIK G'ALABA QOZONDI — DURANG!</b> ⚖️\n\n"
+                f"Ikkala ishtirokchi ham bir xil — <b>{opp_score} ball</b> to'pladi!\n"
+                f"🎁 Har ikkingizga ham <b>+1 tadan bepul slayd</b> taqdim etildi!"
+            )
+            outcome_creator = (
+                f"🤝 <b>DO'STLIK G'ALABA QOZONDI — DURANG!</b> ⚖️\n\n"
+                f"Do'stingiz ({user_name}) bilan natijalaringiz teng keldi: <b>{opp_score} : {creator_score}</b>!\n"
+                f"🎁 Har ikkingizga ham <b>+1 tadan bepul slayd</b> taqdim etildi!"
+            )
+            database.add_slides_to_user(user_id, 1)
+            if creator_id:
+                database.add_slides_to_user(creator_id, 1)
+
+        database.finish_quiz_duel(duel_id, opponent_id=user_id, opponent_score=opp_score, winner_id=winner)
+
+        if creator_id:
+            try:
+                await bot.send_message(
+                    chat_id=creator_id,
+                    text=f"⚔️ <b>AI Viktorina Dueli Yakunlandi!</b>\n\n{outcome_creator}",
+                    parse_mode="HTML",
+                    reply_markup=InlineKeyboardMarkup(inline_keyboard=[
+                        [InlineKeyboardButton(text="⚔️ Yangi Duel Boshlash", callback_data="btn_quiz_duel")],
+                        [InlineKeyboardButton(text="🚀 Slayd Yaratish", callback_data="btn_create_slide")],
+                    ])
+                )
+            except Exception as e:
+                logger.warning(f"Creatorga duel xabarini yuborishda xatolik: {e}")
+
+        kb = InlineKeyboardMarkup(inline_keyboard=[
+            [InlineKeyboardButton(text="⚔️ O'zingiz do'stlarga duel yaratish", callback_data="quiz_cat_pvp")],
+            [InlineKeyboardButton(text="🤖 Solo AI o'ynash", callback_data="quiz_cat_solo")],
+            [InlineKeyboardButton(text="🔙 Bosh menyu", callback_data="btn_cancel")],
+        ])
+        await safe_edit_or_answer(message, f"🏁 <b>Duel Yakunlandi!</b>\n\n{outcome_opp}", reply_markup=kb)
 
 
 @router.callback_query(F.data == "btn_themes")

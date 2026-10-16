@@ -241,6 +241,21 @@ def init_db():
         );
         """)
 
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS quiz_duels (
+            duel_id TEXT PRIMARY KEY,
+            creator_id BIGINT NOT NULL,
+            opponent_id BIGINT,
+            category TEXT,
+            questions_json TEXT NOT NULL,
+            creator_score INT DEFAULT 0,
+            opponent_score INT DEFAULT 0,
+            status TEXT DEFAULT 'waiting',
+            winner_id BIGINT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+
         default_settings = {
             "required_channel": "",
             "initial_slides_limit": "3",
@@ -418,6 +433,21 @@ def init_db():
             code TEXT,
             used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
             PRIMARY KEY(user_id, code)
+        );
+        """)
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS quiz_duels (
+            duel_id TEXT PRIMARY KEY,
+            creator_id INTEGER NOT NULL,
+            opponent_id INTEGER,
+            category TEXT,
+            questions_json TEXT NOT NULL,
+            creator_score INTEGER DEFAULT 0,
+            opponent_score INTEGER DEFAULT 0,
+            status TEXT DEFAULT 'waiting',
+            winner_id INTEGER,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
         );
         """)
 
@@ -1696,4 +1726,83 @@ def award_tournament_winners() -> List[Dict[str, Any]]:
     conn.commit()
     conn.close()
     return awarded
+
+
+# ------------------ BILIMLAR JANGI (QUIZ DUELS) ------------------
+def create_quiz_duel(duel_id: str, creator_id: int, category: str, questions_json: str):
+    """Yangi viktorina duelini yaratadi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    if IS_POSTGRES:
+        cursor.execute("""
+            INSERT INTO quiz_duels (duel_id, creator_id, category, questions_json, status)
+            VALUES (?, ?, ?, ?, 'waiting')
+            ON CONFLICT (duel_id) DO UPDATE SET questions_json = EXCLUDED.questions_json
+        """, (duel_id, creator_id, category, questions_json))
+    else:
+        cursor.execute("""
+            INSERT OR REPLACE INTO quiz_duels (duel_id, creator_id, category, questions_json, status)
+            VALUES (?, ?, ?, ?, 'waiting')
+        """, (duel_id, creator_id, category, questions_json))
+    conn.commit()
+    conn.close()
+
+
+def get_quiz_duel(duel_id: str) -> Optional[Dict[str, Any]]:
+    """Duel ma'lumotlarini ID bo'yicha oladi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("SELECT * FROM quiz_duels WHERE duel_id = ?", (duel_id,))
+    row = cursor.fetchone()
+    conn.close()
+    return dict(row) if row else None
+
+
+def update_creator_duel_score(duel_id: str, score: int):
+    """Duel yaratuvchisining to'plagan ballini yozadi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE quiz_duels SET creator_score = ?, status = 'waiting' WHERE duel_id = ?", (score, duel_id))
+    conn.commit()
+    conn.close()
+
+
+def finish_quiz_duel(duel_id: str, opponent_id: int, opponent_score: int, winner_id: Optional[int]):
+    """Duelni yakunlab, raqib balli va g'olibni qayd etadi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        UPDATE quiz_duels 
+        SET opponent_id = ?, opponent_score = ?, winner_id = ?, status = 'finished'
+        WHERE duel_id = ?
+    """, (opponent_id, opponent_score, winner_id, duel_id))
+    conn.commit()
+    conn.close()
+
+
+def get_user_duel_stats(user_id: int) -> Dict[str, int]:
+    """Foydalanuvchining duel statistikasini qaytaradi."""
+    conn = get_connection()
+    cursor = conn.cursor()
+    try:
+        cursor.execute("SELECT COUNT(*) as wins FROM quiz_duels WHERE winner_id = ? AND status = 'finished'", (user_id,))
+        row_w = cursor.fetchone()
+        wins = row_w["wins"] if row_w else 0
+
+        cursor.execute("""
+            SELECT COUNT(*) as losses FROM quiz_duels 
+            WHERE (creator_id = ? OR opponent_id = ?) AND status = 'finished' AND winner_id IS NOT NULL AND winner_id != ?
+        """, (user_id, user_id, user_id))
+        row_l = cursor.fetchone()
+        losses = row_l["losses"] if row_l else 0
+    except Exception:
+        wins, losses = 0, 0
+    finally:
+        conn.close()
+
+    return {
+        "wins": wins,
+        "losses": losses,
+        "total_duels": wins + losses
+    }
 

@@ -1009,3 +1009,259 @@ Javobni FAQAT DefenseEvaluation JSON formatida qaytaring."""
             continue
 
     return fallback
+
+
+# ------------------ MULTIMODAL (VISION & VOICE) & QUIZ DUEL ------------------
+class VisionExtractionResult(BaseModel):
+    title: str = Field(description="Rasmdan/konspektdan aniqlangan asosiy mavzu (3-7 so'z)")
+    summary: str = Field(description="Rasmdagi matnning 2-3 jumlalik ixcham mazmuni")
+    key_points: List[str] = Field(description="Rasmdagi asosiy 3-5 ta muhim nuqta yoki tushuncha")
+    suggested_slides: int = Field(default=5, description="Tavsiya etiladigan slaydlar soni (3, 5, 7 yoki 10)")
+    raw_text: str = Field(description="Rasmdagi aniqlangan to'liq matn (OCR)")
+
+
+class VoiceCommandResult(BaseModel):
+    transcript: str = Field(description="Ovozli xabardagi aytilgan gaplarning to'liq matni")
+    topic: str = Field(description="Aniqlangan asosiy mavzu nomi")
+    action: Literal["slide", "video", "essay", "article", "unknown"] = Field(default="slide", description="Foydalanuvchi nima yaratmoqchi: 'slide', 'video', 'essay', 'article'")
+    slide_count: int = Field(default=5, description="Slaydlar soni (agar aytilgan bo'lsa, aks holda 5)")
+    language: str = Field(default="uz", description="Til kodi: 'uz', 'ru', 'en'")
+
+
+class QuizQuestion(BaseModel):
+    question: str = Field(description="Qiziqarli va intellektual test savoli")
+    options: List[str] = Field(description="Aynan 4 ta javob varianti (A, B, C, D)")
+    correct_index: int = Field(description="To'g'ri javob indeksi (0, 1, 2, yoki 3)")
+    explanation: str = Field(description="Nima uchun bu javob to'g'riligi haqida 1 jumlalik qiziqarli izoh")
+
+
+class QuizDuelPack(BaseModel):
+    category: str = Field(description="Kategoriya nomi")
+    questions: List[QuizQuestion] = Field(description="Aynan 5 ta qiziqarli test savoli")
+
+
+async def analyze_image_and_extract_topic(
+    image_bytes: bytes,
+    mime_type: str = "image/jpeg",
+    api_key: Optional[str] = None,
+) -> VisionExtractionResult:
+    """
+    Rasm (daftar konspekti, kitob sahifasi, doska, hujjat) dagi matnni o'qib,
+    asosiy mavzu va slaydlar uchun reja tuzadi (Gemini Vision OCR).
+    """
+    key = api_key or config.GEMINI_API_KEY
+    fallback = VisionExtractionResult(
+        title="Rasmdan o'qilgan mavzu",
+        summary="Ushbu rasmda konspekt yoki o'quv materiallari tasvirlangan.",
+        key_points=["Asosiy tushunchalar", "Mavzu tahlili", "Xulosa"],
+        suggested_slides=5,
+        raw_text="",
+    )
+    if not key:
+        return fallback
+
+    client = genai.Client(api_key=key)
+    candidate_models = [
+        config.GEMINI_MODEL,
+        "gemini-2.5-flash",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+    ]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
+
+    prompt = """Siz eng ilg'or AI Vision va OCR mutaxassisisiz. Sizga foydalanuvchi daftar konspekti, kitob sahifasi, doska yoki hujjat rasmini yubordi.
+
+VAZIFA:
+1. Rasmdagi barcha qo'lyozma yoki bosma matnlarni to'liq, aniq o'qing (OCR).
+2. Ushbu matn qaysi ilmiy, amaliy yoki ta'limiy MAVZU haqida ekanligini aniqlang (title).
+3. Matnning 2-3 jumlalik qisqa va mazmunli xulosasini tuzing (summary).
+4. Slaydlar yoki mustaqil ish uchun eng muhim 3-5 ta asosiy fakt yoki punktlarni ajrating (key_points).
+5. Mazmun hajmiga qarab tavsiya etiladigan slaydlar sonini (3, 5, 7 yoki 10) tanlang.
+
+JAVOBNI FAQAT VisionExtractionResult JSON formatida qaytaring."""
+
+    image_part = types.Part.from_bytes(data=image_bytes, mime_type=mime_type)
+
+    for model_name in models_to_try:
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=[prompt, image_part],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=VisionExtractionResult,
+                    temperature=0.2,
+                ),
+            )
+            raw = response.text or ""
+            cleaned = _clean_json_string(raw)
+            return VisionExtractionResult.model_validate_json(cleaned)
+        except Exception as e:
+            logger.warning(f"analyze_image_and_extract_topic {model_name} da xatolik: {e}")
+            continue
+
+    return fallback
+
+
+async def analyze_voice_and_extract_command(
+    audio_bytes: bytes,
+    mime_type: str = "audio/ogg",
+    api_key: Optional[str] = None,
+) -> VoiceCommandResult:
+    """
+    Ovozli xabarni tahlil qilib, foydalanuvchi qaysi mavzuda, qanday formatda va
+    necha slaydli material so'raganini aniqlaydi.
+    """
+    key = api_key or config.GEMINI_API_KEY
+    fallback = VoiceCommandResult(
+        transcript="Ovozli xabar qabul qilindi",
+        topic="Taqdimot mavzusi",
+        action="slide",
+        slide_count=5,
+        language="uz",
+    )
+    if not key:
+        return fallback
+
+    client = genai.Client(api_key=key)
+    candidate_models = [
+        config.GEMINI_MODEL,
+        "gemini-2.5-flash",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+    ]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
+
+    prompt = """Siz sun'iy intellekt audio assistentisiz. Foydalanuvchi Telegram orqali ovozli xabar (voice note) yubordi.
+
+VAZIFA:
+1. transcript: Ovozda aytilgan barcha so'zlarni to'liq, imlo qoidalariga mos holda matnga aylantiring (Speech-to-Text).
+2. topic: Foydalanuvchi qaysi aniq mavzuda slayd, video yoki mustaqil ish so'rayotganini aniqlang (masalan: "Amir Temur saltanati", "Sun'iy intellekt tibbiyotda").
+3. action: Foydalanuvchi nima yaratmoqchi?
+   - 'slide' (slayd, taqdimot, prezentatsiya so'zlarini aytsa yoki shunchaki mavzu aytsa)
+   - 'video' (video, rolik, film so'zlarini aytsa)
+   - 'essay' (mustaqil ish, referat, konspekt so'zlarini aytsa)
+   - 'article' (maqola, tezis so'zlarini aytsa)
+4. slide_count: Agar ovozda necha slayd kerakligi aytilgan bo'lsa (masalan "7 ta slayd", "10 ta slayd"), shu raqamni yozing. Agar aytilmagan bo'lsa, standart 5 deb oling.
+5. language: Ovoz qaysi tilda ekanligi ('uz', 'ru', 'en').
+
+JAVOBNI FAQAT VoiceCommandResult JSON formatida qaytaring."""
+
+    audio_part = types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)
+
+    for model_name in models_to_try:
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=[prompt, audio_part],
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=VoiceCommandResult,
+                    temperature=0.2,
+                ),
+            )
+            raw = response.text or ""
+            cleaned = _clean_json_string(raw)
+            return VoiceCommandResult.model_validate_json(cleaned)
+        except Exception as e:
+            logger.warning(f"analyze_voice_and_extract_command {model_name} da xatolik: {e}")
+            continue
+
+    return fallback
+
+
+async def generate_quiz_duel_questions(
+    category: str = "aralash",
+    question_count: int = 5,
+    api_key: Optional[str] = None,
+) -> QuizDuelPack:
+    """
+    Do'stlar bellashuvi yoki AI bilan duel uchun qiziqarli, qiyinligi o'rtacha bo'lgan
+    5 ta intellektual test savollarini tuzadi.
+    """
+    key = api_key or config.GEMINI_API_KEY
+    fallback = QuizDuelPack(
+        category=category,
+        questions=[
+            QuizQuestion(
+                question="O'zbekiston Respublikasi Konstitutsiyasi qachon qabul qilingan?",
+                options=["1991-yil 1-sentyabr", "1992-yil 8-dekabr", "1993-yil 9-may", "1990-yil 20-iyun"],
+                correct_index=1,
+                explanation="O'zbekiston Konstitutsiyasi 1992-yil 8-dekabrda qabul qilingan."
+            ),
+            QuizQuestion(
+                question="Dunyo bo'yicha eng mashhur AI tili bo'lgan Python qachon yaratilgan?",
+                options=["1985-yil", "1991-yil", "1998-yil", "2005-yil"],
+                correct_index=1,
+                explanation="Gvido van Rossum Python tilini 1991-yilda ommaga taqdim etgan."
+            ),
+            QuizQuestion(
+                question="Quyosh tizimidagi eng katta sayyora qaysi?",
+                options=["Mars", "Saturn", "Yupiter", "Neptun"],
+                correct_index=2,
+                explanation="Yupiter Quyosh tizimidagi eng bahaybat gigant sayyoradir."
+            ),
+            QuizQuestion(
+                question="Amir Temurning davlat shiori qanday bo'lgan?",
+                options=["Kuch - adolatdadir", "Bilim - eng katta kuch", "G'alaba yoki o'lim", "Tinchlik - taraqqiyot poydevori"],
+                correct_index=0,
+                explanation="Sohibqiron Amir Temurning davlat shiori «Rosti-rasti» (Kuch - adolatdadir) bo'lgan."
+            ),
+            QuizQuestion(
+                question="Kompyuter xotirasidagi 1 Gigabayt (GB) necha Megabayt (MB) ga teng?",
+                options=["1000 MB", "1024 MB", "512 MB", "2048 MB"],
+                correct_index=1,
+                explanation="Ikkilik sanoq tizimida 1 GB aynan 1024 MB ni tashkil qiladi."
+            ),
+        ]
+    )
+    if not key:
+        return fallback
+
+    client = genai.Client(api_key=key)
+    candidate_models = [
+        config.GEMINI_MODEL,
+        "gemini-2.5-flash",
+        "gemini-3.8-flash",
+        "gemini-flash-latest",
+    ]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
+
+    prompt = f"""Siz professional intellektual viktorina ("Zakovat", "Millioner") boshlovchisisiz.
+KATEGORIYA: «{category}»
+SAVOLLAR SONI: Aynan {question_count} ta savol.
+
+QAT'IY TALABLAR:
+1. Savollar zerikarli bo'lmasin! Haqiqiy intellekt, qiziqarli faktlar va mantiqqa asoslansin.
+2. Har bir savolda aynan 4 ta variant (options) bo'lsin.
+3. correct_index: 0, 1, 2 yoki 3 bo'lsin (to'g'ri variant indeksi).
+4. explanation: Nega aynan shu javob to'g'riligi haqida 1 jumlalik qiziqarli izoh yozing.
+5. Savollar va variantlar o'zbek tilida (lotin alifbosida) bo'lsin.
+
+JAVOBNI FAQAT QuizDuelPack JSON formatida qaytaring."""
+
+    for model_name in models_to_try:
+        try:
+            response = await client.aio.models.generate_content(
+                model=model_name,
+                contents=prompt,
+                config=types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=QuizDuelPack,
+                    temperature=0.7,
+                ),
+            )
+            raw = response.text or ""
+            cleaned = _clean_json_string(raw)
+            pack = QuizDuelPack.model_validate_json(cleaned)
+            if pack.questions and len(pack.questions) == question_count:
+                return pack
+        except Exception as e:
+            logger.warning(f"generate_quiz_duel_questions {model_name} da xatolik: {e}")
+            continue
+
+    return fallback
+
