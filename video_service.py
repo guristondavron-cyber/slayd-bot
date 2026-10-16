@@ -129,33 +129,42 @@ async def generate_video_scenario(
     target_scenes = preset_scene_counts.get(duration_preset, 6)
 
     system_prompt = f"""
-Siz professional kinorejissyor va ssenaristsiz. Sizga mavzu beriladi va siz qisqa videoroliklar zanjiridan iborat yaxlit, qiziqarli videofilm ssenariysini tuzishingiz kerak.
+Siz Hollywood darajasidagi professional kinorejissyor va ssenaristsiz. Sizga mavzu beriladi va siz hissiy, ta'sirchan va vizual jihatdan boy videofilm ssenariysini tuzishingiz kerak.
 
 MAVZU: {topic}
 SAHNALAR SONI: Aynan {target_scenes} ta sahna.
-HAR BIR SAHNA DAVOMIYLIGI: ~8-10 soniya.
+HAR BIR SAHNA DAVOMIYLIGI: ~10-12 soniya.
 JAMI VIDEO VAQTI: {target_scenes * 10} soniya atrofida.
 
 QAT'IY QOIDALAR:
 1. UZLUKSIZLIK (CONTINUITY):
-   - Har bir 10 sekundlik sahna oldingi sahnaning bevosita mantiqiy va vizual DAVOMI bo'lishi shart!
-   - Qahramonlar, muhit, yorug'lik va umumiy uslub bir-biriga mos kelishi lozim.
-   - 1-sahna: Kirish / umumiy plan (establishing shot).
-   - O'rta sahnalar: Voqealar rivoji, harakatlar, tafsilotlar.
-   - So'nggi sahna: Kulminatsiya va kuchli xulosa.
+   - Har bir sahna oldingi sahnaning bevosita mantiqiy va vizual DAVOMI bo'lishi shart!
+   - Muhit, yorug'lik uslubi va umumiy kayfiyat (mood) bir-biriga mos bo'lsin.
+   - 1-sahna: Kuchli dramatik kirish (establishing shot) — tomoshabinni darhol o'ziga jalb qilsin.
+   - O'rta sahnalar: Chuqurlashish, qiziqarli faktlar, hayratlanarli detallar.
+   - So'nggi sahna: Kuchli emotsional xulosa va fikrga chorlash.
 
 2. DIKTOR NUTQI (narration):
-   - O'zbek tilida, ifodali, jonli va professional diktorlik uslubida bo'lsin.
-   - Har bir sahna uchun 1-2 jumlalik (~15-22 so'z) matn yozing. 10 soniyada erkin o'qiladigan bo'lsin.
-   - Qoliplardan qoching, tomoshabinni ekranga mixlab qo'yadigan qiziqarli faktlar va tasvirlarni ishlating.
+   - MUTLAQO O'ZBEK tilida, professional va emotsional diktorlik uslubida!
+   - Har bir sahna uchun 2-3 jumlali matn yozing (~20-30 so'z). 
+   - Matn to'liq va mantiqli jumla bo'lsin. So'z orasida kesilmasin!
+   - Qiziqarli faktlar, raqamlar va hayratlanarli ma'lumotlar ishlating.
+   - OGOHLANTIRISH: Har bir narration matni TO'LIQ jumla bilan tugashi kerak. Hech qachon yarmi kesib qo'yilmasin!
 
 3. VIZUAL PROMT (visual_prompt):
-   - Mutlaqo INGLIZ tilida, neyrotarmoq uchun juda batafsil yozilsin.
-   - Masalan: "Cinematic 8k, photorealistic, dramatic golden hour lighting, 35mm film lens, atmospheric dust particles, epic historical ambiance, award-winning cinematography, no text, no watermark".
-   - Kamera harakatiga mos vizual tasvir bering.
+   - Mutlaqo INGLIZ tilida, neyrotarmoq uchun JUDA batafsil (kamida 30-50 so'z) yozilsin.
+   - Har bir promptda quyidagilar ALBATTA bo'lsin:
+     * Aniq sahna tavsifi (nima ko'rinishi kerak)
+     * Yorug'lik turi (golden hour, dramatic rim lighting, soft ambient, neon glow, moonlight)
+     * Kamera rakursi (wide shot, close-up, bird's eye view, low angle, over the shoulder)
+     * Atmosfera (fog, rain, dust particles, lens flare, bokeh, volumetric light)
+     * Uslub (cinematic, photorealistic, 8k, film grain, anamorphic, award-winning photography)
+     * Sifat kalit so'zlari: "masterpiece, ultra-detailed, professional color grading, no text, no watermark"
+   - Mavzuga mos realistik, hissiy va ta'sirchan vizual sahna tasvirlansin.
 
 4. KAMERA HARAKATI (camera_motion):
-   - Har bir sahna uchun har xil kamera harakatini tanlang: 'zoom_in', 'zoom_out', 'pan_right', 'pan_left', 'tilt_up'.
+   - Har bir sahna uchun FAQAT bittasini tanlang: 'zoom_in', 'zoom_out', 'pan_right', 'pan_left', 'tilt_up'.
+   - Ketma-ket bir xil harakat bo'lmasin — xilma-xillik bo'lsin.
 """
 
     candidate_models = [
@@ -231,22 +240,25 @@ async def generate_scene_voice(
 
 def download_scene_image(visual_prompt: str, output_path: str, seed: int) -> bool:
     """
-    Pollinations AI (Turbo) va Picsum orqali yuqori sifatli 1280x720 fotorealistik kadrni tezkor yuklab oladi.
+    Pollinations AI (Flux / Turbo) va Picsum orqali yuqori sifatli 1280x720 fotorealistik kadrni tezkor yuklab oladi.
     """
     clean_prompt = visual_prompt.strip()
-    full_prompt = f"{clean_prompt}, cinematic, 8k, highly detailed, photorealistic, atmospheric lighting, 16:9 widescreen, no text, no watermark"
+    full_prompt = (
+        f"{clean_prompt}, cinematic movie scene, master photography, hyperrealistic 8k, "
+        f"dramatic dynamic lighting, highly detailed, photorealistic, atmospheric, 16:9 widescreen, no text, no watermark"
+    )
     encoded = urllib.parse.quote(full_prompt)
 
-    # Birinchi navbatda Turbo (1-2 soniyada tayyor bo'ladi)
+    # 1. Flux (eng yuqori sifat) -> 2. Turbo (tezkor) -> 3. Picsum
     urls = [
+        f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&model=flux&nologo=true&seed={seed}",
         f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&model=turbo&nologo=true&seed={seed}",
         f"https://picsum.photos/seed/{seed}/1280/720",
-        f"https://image.pollinations.ai/prompt/{encoded}?width=1280&height=720&model=flux&nologo=true&seed={seed}",
     ]
 
     for url in urls:
         try:
-            resp = requests.get(url, timeout=7)
+            resp = requests.get(url, timeout=9)
             if resp.status_code == 200 and len(resp.content) > 5000:
                 with open(output_path, "wb") as f:
                     f.write(resp.content)
@@ -271,17 +283,22 @@ def build_motion_filter(motion: str, duration: float, fps: int = 25) -> str:
     """FFmpeg zoompan filtri orqali turli kinematik kamera harakatlarini hosil qiladi."""
     total_frames = max(25, int(duration * fps))
 
+    # Kinematik rang uyg'unligi va chetki yumshoq qorayish (IMAX documentary feel)
+    cinema_effects = "eq=contrast=1.07:saturation=1.14:brightness=0.01,vignette=PI/5.5"
+
     if motion == "zoom_out":
-        return f"scale=1280:720,zoompan=z='if(lte(zoom,1.0),1.20,max(1.001,zoom-0.0012))':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
+        zoom_part = f"zoompan=z='if(lte(zoom,1.0),1.22,max(1.001,zoom-0.0014))':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
     elif motion == "pan_right":
-        return f"scale=1280:720,zoompan=z=1.12:d={total_frames}:x='(in/{total_frames})*(iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
+        zoom_part = f"zoompan=z=1.15:d={total_frames}:x='(in/{total_frames})*(iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
     elif motion == "pan_left":
-        return f"scale=1280:720,zoompan=z=1.12:d={total_frames}:x='(1-(in/{total_frames}))*(iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
+        zoom_part = f"zoompan=z=1.15:d={total_frames}:x='(1-(in/{total_frames}))*(iw-iw/zoom)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
     elif motion == "tilt_up":
-        return f"scale=1280:720,zoompan=z=1.12:d={total_frames}:x='iw/2-(iw/zoom/2)':y='(1-(in/{total_frames}))*(ih-ih/zoom)':s=1280x720:fps={fps}"
+        zoom_part = f"zoompan=z=1.15:d={total_frames}:x='iw/2-(iw/zoom/2)':y='(1-(in/{total_frames}))*(ih-ih/zoom)':s=1280x720:fps={fps}"
     else:
         # Default: zoom_in
-        return f"scale=1280:720,zoompan=z='min(zoom+0.0014,1.20)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
+        zoom_part = f"zoompan=z='min(zoom+0.0016,1.22)':d={total_frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1280x720:fps={fps}"
+
+    return f"scale=1280:720,{zoom_part},{cinema_effects}"
 
 
 def render_single_scene_clip(
@@ -307,12 +324,13 @@ def render_single_scene_clip(
     if font_file and subtitle_text:
         sub_txt_path = output_clip_path + ".sub.txt"
         try:
+            # Subtitr matnini to'liq va o'qilishi qulay qilib qatorlarga ajratish
             words = subtitle_text.split()
             lines = []
             cur_line = []
             cur_len = 0
             for w in words:
-                if cur_len + len(w) > 40 and cur_line:
+                if cur_len + len(w) > 42 and cur_line:
                     lines.append(" ".join(cur_line))
                     cur_line = [w]
                     cur_len = len(w)
@@ -321,7 +339,9 @@ def render_single_scene_clip(
                     cur_len += len(w) + 1
             if cur_line:
                 lines.append(" ".join(cur_line))
-            wrapped_sub = "\n".join(lines[:2])
+            
+            # To'liq matn (hech narsa qisqartirilmaydi)
+            wrapped_sub = "\n".join(lines)
 
             with open(sub_txt_path, "w", encoding="utf-8") as f:
                 f.write(wrapped_sub)
@@ -330,8 +350,9 @@ def render_single_scene_clip(
             clean_sub_txt = sub_txt_path.replace("\\", "/").replace(":", "\\:")
             drawtext_filter = (
                 f"drawtext=fontfile='{clean_font}':textfile='{clean_sub_txt}':"
-                f"fontsize=24:fontcolor=white:box=1:boxcolor=black@0.65:boxborderw=8:"
-                f"line_spacing=6:x=(w-text_w)/2:y=h-text_h-45"
+                f"fontsize=24:fontcolor=white:borderw=2:bordercolor=black@0.85:"
+                f"box=1:boxcolor=black@0.6:boxborderw=10:"
+                f"line_spacing=7:x=(w-text_w)/2:y=h-text_h-45"
             )
             vfilters1 = f"{motion_filter},fade=t=in:st=0:d={fade_duration},fade=t=out:st={fade_out_start:.2f}:d={fade_duration},{drawtext_filter}"
             cmd1 = [

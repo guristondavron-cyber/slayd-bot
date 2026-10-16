@@ -567,24 +567,70 @@ def get_or_create_user(
     reward_amount = 0
 
     if row:
+        user_dict = dict(row)
+        user_dict["first_name"] = first_name
+        user_dict["username"] = username
+
+        # Agar foydalanuvchi avval kirgan bo'lsa-yu, lekin referred_by bo'lmasa va referal havola bilan kirsa
+        if user_dict.get("referred_by") is None and referrer_id and referrer_id != user_id and referrer_id > 1000:
+            cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (referrer_id,))
+            if not cursor.fetchone():
+                cursor.execute(
+                    "INSERT INTO users (user_id, first_name, username, slides_left, is_vip, referrals_count) VALUES (?, 'Foydalanuvchi', '', 3, 0, 0)",
+                    (referrer_id,),
+                )
+            cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (referrer_id,))
+            if cursor.fetchone():
+                valid_referrer = referrer_id
+                bonus = int(get_setting("referral_reward", "2"))
+                cursor.execute(
+                    "UPDATE users SET referred_by = ? WHERE user_id = ? AND referred_by IS NULL",
+                    (valid_referrer, user_id),
+                )
+                cursor.execute(
+                    """
+                    UPDATE users 
+                    SET slides_left = slides_left + ?, referrals_count = referrals_count + 1, extra_spins = COALESCE(extra_spins, 0) + 1 
+                    WHERE user_id = ?
+                    """,
+                    (bonus, valid_referrer),
+                )
+                try:
+                    if IS_POSTGRES:
+                        cursor.execute(
+                            "INSERT INTO referral_events (referrer_id, referred_id) VALUES (?, ?) ON CONFLICT (referred_id) DO NOTHING",
+                            (valid_referrer, user_id),
+                        )
+                    else:
+                        cursor.execute(
+                            "INSERT OR IGNORE INTO referral_events (referrer_id, referred_id) VALUES (?, ?)",
+                            (valid_referrer, user_id),
+                        )
+                except Exception:
+                    pass
+                rewarded_referrer_id = valid_referrer
+                reward_amount = bonus
+                user_dict["referred_by"] = valid_referrer
+
         cursor.execute(
             "UPDATE users SET first_name = ?, username = ?, last_active = CURRENT_TIMESTAMP WHERE user_id = ?",
             (first_name, username, user_id),
         )
         conn.commit()
-        user_dict = dict(row)
-        user_dict["first_name"] = first_name
-        user_dict["username"] = username
         conn.close()
-        return user_dict, None, 0
+        return user_dict, rewarded_referrer_id, reward_amount
 
     initial_limit = int(get_setting("initial_slides_limit", "3"))
     valid_referrer = None
 
-    if referrer_id and referrer_id != user_id:
+    if referrer_id and referrer_id != user_id and referrer_id > 1000:
         cursor.execute("SELECT user_id FROM users WHERE user_id = ?", (referrer_id,))
-        if cursor.fetchone():
-            valid_referrer = referrer_id
+        if not cursor.fetchone():
+            cursor.execute(
+                "INSERT INTO users (user_id, first_name, username, slides_left, is_vip, referrals_count) VALUES (?, 'Foydalanuvchi', '', 3, 0, 0)",
+                (referrer_id,),
+            )
+        valid_referrer = referrer_id
 
     cursor.execute(
         """
@@ -1391,36 +1437,76 @@ def sync_referral_counts():
                 SELECT COUNT(*) FROM referral_events WHERE referral_events.referrer_id = users.user_id
             ) WHERE user_id IN (SELECT DISTINCT referrer_id FROM referral_events)
         """)
+
+        # 3. Agar referral_events jadvali bo'sh bo'lsa, referred_by orqali hisoblash (fallback)
+        cursor.execute("""
+            UPDATE users SET referrals_count = (
+                SELECT COUNT(*) FROM users u2 WHERE u2.referred_by = users.user_id
+            ) WHERE referrals_count = 0 AND user_id IN (
+                SELECT DISTINCT referred_by FROM users WHERE referred_by IS NOT NULL
+            )
+        """)
+
         conn.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        import logging
+        logging.getLogger(__name__).error(f"sync_referral_counts error: {e}", exc_info=True)
+        try:
+            conn.conn.rollback()
+        except Exception:
+            pass
     finally:
         conn.close()
 
 
 def get_all_referrers_admin(limit: int = 50) -> List[Dict[str, Any]]:
-    """Admin uchun referallari bor barcha foydalanuvchilar ro'yxati."""
+    """Admin uchun referallari bor barcha foydalanuvchilar ro'yxati (ikkala manbadan)."""
     conn = get_connection()
     cursor = conn.cursor()
+    try:
+        # Avval sinxronlaymiz
+        sync_referral_counts()
+    except Exception:
+        pass
+
+    # Birlamchi: referrals_count ustuni (sinxronlangandan keyin)
+    # Ikkilamchi: referred_by orqali to'g'ridan-to'g'ri hisoblash (agar sinxronlash ishlamasa)
     cursor.execute("""
         SELECT 
             u.user_id,
             u.first_name,
             u.username,
-            COALESCE(u.referrals_count, 0) as referrals_count,
             u.slides_left,
             u.is_vip,
             u.phone_number,
-            u.created_at
+            u.created_at,
+            COALESCE(u.referrals_count, 0) as referrals_count,
+            (SELECT COUNT(*) FROM users u2 WHERE u2.referred_by = u.user_id) as referred_by_count
         FROM users u
         WHERE COALESCE(u.referrals_count, 0) > 0 
+           OR u.user_id IN (SELECT DISTINCT referred_by FROM users WHERE referred_by IS NOT NULL)
            OR u.user_id IN (SELECT DISTINCT referrer_id FROM referral_events)
-        ORDER BY referrals_count DESC
+        ORDER BY CASE 
+            WHEN COALESCE(u.referrals_count, 0) > 0 THEN COALESCE(u.referrals_count, 0)
+            ELSE (SELECT COUNT(*) FROM users u2 WHERE u2.referred_by = u.user_id)
+        END DESC
         LIMIT ?
     """, (limit,))
     rows = cursor.fetchall()
     conn.close()
-    return [dict(r) for r in rows] if rows else []
+    if not rows:
+        return []
+    result = []
+    for r in rows:
+        d = dict(r)
+        # Eng kattasini olamiz: sinxronlangan yoki referred_by orqali hisoblangan
+        rc = max(d.get("referrals_count", 0), d.get("referred_by_count", 0))
+        d["referrals_count"] = rc
+        result.append(d)
+    # 0 bo'lganlarni olib tashlaymiz
+    result = [r for r in result if r["referrals_count"] > 0]
+    result.sort(key=lambda x: x["referrals_count"], reverse=True)
+    return result
 
 
 def get_user_admin_info(user_id: int) -> Optional[Dict[str, Any]]:

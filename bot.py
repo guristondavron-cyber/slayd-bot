@@ -624,13 +624,19 @@ async def cmd_start(message: Message, state: FSMContext, command: CommandObject,
     username = message.from_user.username or ""
 
     referrer_id = None
-    if command.args and command.args.startswith("ref_"):
-        try:
-            ref_candidate = int(command.args.replace("ref_", ""))
-            if ref_candidate != user_id:
-                referrer_id = ref_candidate
-        except ValueError:
-            pass
+    if command.args:
+        raw_arg = command.args.strip()
+        if raw_arg.startswith("ref_"):
+            raw_arg = raw_arg[4:]
+        elif raw_arg.startswith("ref"):
+            raw_arg = raw_arg[3:]
+        if raw_arg.isdigit():
+            try:
+                ref_candidate = int(raw_arg)
+                if ref_candidate != user_id:
+                    referrer_id = ref_candidate
+            except ValueError:
+                pass
 
     user_dict, rewarded_ref, reward_amount = database.get_or_create_user(
         user_id=user_id,
