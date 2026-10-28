@@ -111,24 +111,23 @@ def build_system_prompt(
             "- Talabalar va tinglovchilar uchun chuqur ilmiy asoslangan, faktlarga boy akademik tilda yozing."
         ),
         "business": (
-            "TAQDIMOT YO'NALISHI: BIZNES, STARTAP VA INVESTOR PITCH DECK.\n"
-            "- Taqdimot strukturasi: Bozor muammosi (Pain Point) -> Innovatsion yechim (Solution) -> Bozor hajmi (TAM/SAM/SOM) -> Biznes va monetizatsiya modeli -> Raqobatchilar va ustunliklar -> Rivojlanish xaritasi (Roadmap) -> Jamoa va investitsiya talabi (The Ask).\n"
-            "- Kuchli iqtisodiy, moliyaviy va strategik atamalar, o'sish ko'rsatkichlaridan foydalaning."
+            "TAQDIMOT YO'NALISHI: BIZNES, STRATEGIYA VA INVESTITSIYA.\n"
+            "- Taqdimot strukturasi: Bozor tahlili -> Strategik yo'nalishlar -> Asosiy ko'rsatkichlar -> Raqobat ustunliklari -> Rivojlanish rejasi.\n"
+            "- Aniq tahliliy, moliyaviy va strategik atamalar, ko'rsatkichlardan foydalaning."
         ),
         "analytics": (
             "TAQDIMOT YO'NALISHI: TAHLILIY HISOBOT VA STATISTIKA.\n"
-            "- Taqdimot strukturasi: Asosiy strategik KPIlar -> O'sish dinamikasi va tahliliy trendlar -> Qiyosiy ko'rsatkichlar -> Xavf-xatarlar (Risk Management) -> Tahliliy prognoz va operatsion qarorlar.\n"
+            "- Taqdimot strukturasi: Asosiy strategik KPIlar -> O'sish dinamikasi va tahliliy trendlar -> Qiyosiy ko'rsatkichlar -> Tahliliy xulosalar.\n"
             "- Aniq foizlar, nisbatlar, jadvallar va chuqur tahliliy faktlarga asoslaning."
         ),
         "general": (
-            "TAQDIMOT YO'NALISHI: UMUMIY VA IJODIY EXECUTIVE TAQDIMOT.\n"
-            "- Mavzuning eng qiziqarli, zamonaviy va ta'sirchan jihatlarini ochib bering."
+            "TAQDIMOT YO'NALISHI: PROFESSIONAL AKADEMIK VA EXECUTIVE TAQDIMOT.\n"
+            "- Mavzuning eng muhim, qiziqarli, mazmunli va ta'sirchan jihatlarini ochib bering."
         ),
-    }.get(mode, "Executive taqdimot tayyorlang.")
+    }.get(mode, "Professional taqdimot tayyorlang.")
 
-    return f"""Siz jahon miqyosidagi yetakchi taqdimot dizayneri (Canva/McKinsey/Apple darajasidagi) va yuqori darajadagi strategik spikersiz.
-Siz yaratgan taqdimotlar xuddi professional inson dizayneri tomonidan soatlab ijodiy o'ylab topilgandek, jonli, ta'sirchan, zamonaviy va chuqur mantiqqa ega bo'lishi shart.
-Sun'iy intellekt qoliplari (quruq, shablon, robotga o'xshash jumlalar) mutlaqo TAQIQLANADI!
+    return f"""Siz jahon miqyosidagi yetakchi taqdimot dizayneri va professional spikersiz.
+Siz yaratgan taqdimotlar xuddi professional ekspert tomonidan soatlab ijodiy o'ylab topilgandek, jonli, ta'sirchan, zamonaviy va chuqur mantiqqa ega bo'lishi shart.
 
 MAVZU: "{topic}"
 
@@ -137,38 +136,35 @@ MAVZU: "{topic}"
 TIL TALABI:
 {lang_instruction}
 
-MUHIM QAT'IY TALABLAR (INSON DARAJASIDAGI DIZAYN VA MAZMUN):
-1. JAMI SLAYDLAR SONI: 'slides' ro'yxatida ANIQ VA ROPPA-ROSA {slide_count} TA SLAYD BO'LISHI SHART!
+MUHIM QAT'IY TALABLAR (MAVZUGA TO'LIQ SADOQAT VA DIZAYN):
+1. MAVZUGA 100% SADOQAT VA CHUQUR MOSLIK:
+   - Taqdimotning 1-slaydidanoq oxirgi slaydigacha BARCHA matnlar, sarlavhalar, punktlar, faktlar va tahlillar AYNAN BERILGAN MAVZU: "{topic}" GA BAXSHIDA BO'LISHI SHART!
+   - Agar mavzu Tarix bo'lsa — tarixiy shaxslar, sanalar, davlat boshqaruvi, janglar va meros haqida yozing.
+   - Agar mavzu Tibbiyot yoki Biologiya bo'lsa — inson a'zolari, kasalliklar, hujayra, davolash va anatomik ilmiy ma'lumotlarni yozing.
+   - Agar mavzu Adabiyot yoki Til bo'lsa — asarlar, g'azallar, mualliflar va til qoidalari haqida yozing.
+   - Agar mavzu Texnologiya/Dasturlash bo'lsa — arxitektura, kod, algoritmlar va texnologik yechimlarni yozing.
+   - Boshqa sohalarga oid mavzularda hech qachon noo'rin biznes/startap andozalarini ("Bozor hajmi", "Xarajat qisqarishi", "ROI", "Bozor tahlili") aralashtirmang! Mavzuning o'z sohasiga xos tushunchalarni yoriting.
+
+2. JAMI SLAYDLAR SONI: 'slides' ro'yxatida ANIQ VA ROPPA-ROSA {slide_count} TA SLAYD BO'LISHI SHART!
    - Kam ham, ko'p ham bo'lmasin. Aniq {slide_count} ta unikal slayd.
 
-2. INSON DIZAYNERI USLUBI — KUCHLI SARLAVHALAR VA MAZMUN (QAT'IY QOIDALAR):
-   - "Kirish", "Asosiy tushuncha", "Omil 1", "Strategiya 2", "Loyiha rejasi" kabi zerikarli va qolip so'zlar QAT'IYAN MAN ETILADI!
-   - Sarlavhalar xuddi Forbes yoki Harvard Business Review maqolalaridek o'quvchi diqqatini darhol jalb qiluvchi, natijaga va ma'noga yo'naltirilgan bo'lsin (masalan: "2026-yilgi burilish nuqtasi: Bozor qayerga qarab ketmoqda?", "Nega 78% an'anaviy yondashuvlar samarasiz?", "Raqamli intizom: Biznesni 3 barobar tezlashtirish yo'li").
-   - Kategoriya tegi ('category_badge') 1-2 so'zdan iborat professional belgi bo'lsin (masalan: 'STRATEGIK TAHLIL', 'ASOSIY METRIKA', 'BURILISH NUQTASI', 'YECHIM', 'YO'L XARITASI').
+3. VIZUAL RASM KALIT SO'ZLARI ('image_keyword'):
+   - HAR BIR SLAYD uchun 'image_keyword' maydoniga USHBU SLAYD MAVZUSIGA 100% MOS KELUVCHI, INGLIZ TILIDAGI 3-5 TA ANIQ SO'Z KIRITING (Hech qachon null yoki bo'sh qoldirmang!).
+   - Masalan: Tarix uchun — "ancient Samarkand Registan Timur monument historical 4k", Tibbiyot uchun — "human cardiovascular system heart medical illustration scientific", Biologiya uchun — "plant cell microscope biology laboratory 4k".
+   - Bu kalit so'zlar bo'yicha slaydlarga fotorealistik va mavzuga to'liq mos rasmlar yuklanadi.
+
+4. INSON DIZAYNERI USLUBI — KUCHLI VA MAZMUNLI SARLAVHALAR:
+   - "Kirish", "Asosiy tushuncha", "Omil 1", "Strategiya 2" kabi zerikarli va qolip so'zlar QAT'IYAN MAN ETILADI!
+   - Sarlavhalar o'quvchi diqqatini darhol jalb qiluvchi, mavzuning tub mohiyatini ochib beruvchi bo'lsin.
+   - Kategoriya tegi ('category_badge') 1-2 so'zdan iborat professional belgi bo'lsin (masalan: 'ILMIY ASOS', 'CHUQUR TAHLIL', 'TARAQQIYOT BOSQICHI', 'XULOSA').
    - Har bir karta yoki punktning izohi 15-25 ta so'zdan iborat, aniq atamalar, ma'lumotlar va amaliy tavsiyalar bilan to'ldirilsin.
 
-3. VIZUAL SAN'AT VA FOTOGRAFIA ('image_keyword'):
-   - Har bir slayd uchun 'image_keyword' maydoniga slayd mavzusiga mos, go'zal va fotorealistik rasm generatsiya qilish uchun inglizcha 3-5 ta sifatli so'z kiriting.
-   - Masalan: "futuristic clean laboratory scientist microscope 4k", "uzbekistan samarkand registan historical sunset cinematic", "cybersecurity digital shield protection high tech glowing".
-   - Bu rasmlar slaydda zamonaviy 60/40 insoniy vizual kompozitsiya hosil qilish uchun ishlatiladi.
+5. HAR BIR SLAYDNING VIZUAL STRUKTURASI ALMASHIB TURISHI SHART:
+   - Ketma-ket bir xil layout ishlatilmasin!
+   - Foydalaniladigan layout turlari: "title_slide", "cards_grid", "chart_slide", "stats_metrics", "comparison", "timeline_steps", "matrix_2x2", "quote_highlight", "checklist_points", "conclusion".
 
-4. HAR BIR SLAYDNING VIZUAL STRUKTURASI ALMASHIB TURISHI SHART:
-   - Ketma-ket bir xil layout ishlatilmasin! Tomoshabin har bir slaydda yangi vizual shaklni ko'rsin.
-   - Foydalaniladigan layout turlari:
-     * "title_slide" (1-slayd uchun ta'sirchan muqova)
-     * "cards_grid" (3 ta asosiy yo'nalish yoki g'oya kartalari)
-     * "chart_slide" (haqiqiy PowerPoint diagrammasi: dinamika yoki taqsimot ko'rsatkichlari)
-     * "stats_metrics" (katta, hayratlanarli raqamlar: masalan '+140%', '$4.2M', '99.4%', '24/7')
-     * "comparison" (an'anaviy vs innovatsion yechim solishtiruvi)
-     * "timeline_steps" (bosqichma-bosqich yo'l xaritasi yoki qadamlar)
-     * "matrix_2x2" (4 ta asosiy burchak yoki strategik ustun)
-     * "quote_highlight" (kuchli falsafiy fikr yoki bozor eksperti xulosasi)
-     * "checklist_points" (amaliy 4 ta oltin qoida yoki harakatlar tekshiruv ro'yxati)
-     * "conclusion" (yakuniy kuchli xulosa va harakatga chorlov)
-
-5. JONLI VA TA'SIRCHAN SPIKER NUTQI ('speaker_speech'):
+6. JONLI VA TA'SIRCHAN SPIKER NUTQI ('speaker_speech'):
    - {speech_instruction}
-   - Nutq quruq matn o'qish emas, balki zalga qarab jonli murojaat qiladigan professional notiq ovozida bo'lsin.
 """
 
 
@@ -189,133 +185,104 @@ def _clean_json_string(text: str) -> str:
 
 
 def _get_extra_thematic_slides(topic: str, language: str = "uz", with_speech: bool = True) -> List[SlideContent]:
-    """Slaydlar soni kam chiqqan taqdirda qo'shimcha boyituvchi sifatli va turfa xil slaydlar bazasi."""
+    """Slaydlar soni kam chiqqan taqdirda mavzuga 100% mos va unikal boyituvchi sifatli slaydlar bazasi."""
     short_t = topic if len(topic) < 40 else topic[:40] + "..."
+    clean_t = re.sub(r"[^a-zA-Z0-9\s]", " ", topic).strip()
+    safe_kw = " ".join(clean_t.split()[:4]) or "presentation topic"
     spk = lambda s: s if with_speech else None
+
     return [
         SlideContent(
             layout="cards_grid",
-            category_badge="CHUQUR TAHLIL",
-            title=f"{short_t}: Muvaffaqiyat Omillari",
-            subtitle="Mavzuning samaradorligini ta'minlovchi asosiy yo'nalishlar va tamoyillar",
+            category_badge="CHUQUR ILMIY TAHLIL",
+            title=f"{short_t}: Asosiy Konseptual Tamoyillar",
+            subtitle=f"{short_t} mavzusining mohiyatini belgilab beruvchi fundamental yo'nalishlar",
             cards=[
-                CardItem(title="Aniq Maqsadlar", description="Har bir jarayonda o'lchanadigan natijalar va strategik vazifalarni belgilash.", badge="Omil 1"),
-                CardItem(title="Resurslar Tahlili", description="Mavjud imkoniyatlar, vaqt va moddiy resurslardan oqilona foydalanish.", badge="Omil 2"),
-                CardItem(title="Monitoring va Nazorat", description="Har bir bosqichni doimiy nazorat qilib borish va tezkor tuzatishlar kiritish.", badge="Omil 3"),
+                CardItem(title="Nazariy Poydevor", description=f"{short_t} sohasidagi ilmiy-nazariy tushunchalar va asosiy qonuniyatlar tizimi.", badge="01. Asos"),
+                CardItem(title="Tizimli Aloqadorlik", description=f"{short_t} doirasidagi barcha elementlarning o'zaro uzviy bog'liqligi va uyg'unligi.", badge="02. Tizim"),
+                CardItem(title="Amaliy Samaradorlik", description=f"{short_t} bo'yicha ishlab chiqilgan yondashuvlarning hayotiy qo'llanilishi va natijadorligi.", badge="03. Natija"),
             ],
-            speaker_speech=spk("Ushbu slaydda biz jarayonning muvaffaqiyatini ta'minlovchi uchta asosiy omilni ko'rib chiqamiz. Ularning har biri yakuniy natijaga bevosita ta'sir ko'rsatadi."),
-        ),
-        SlideContent(
-            layout="stats_metrics",
-            category_badge="NATIJALAR VA STATISTIKA",
-            title="Kutilayotgan O'sish va Dinamika",
-            subtitle="Amaliyotga tatbiq etish orqali erishiladigan asosiy ko'rsatkichlar",
-            stats=[
-                StatItem(number="92%", label="Samaradorlik", description="Tizimli yondashuv natijasida ish sifati ortishi"),
-                StatItem(number="2.8X", label="Tezlik", description="Topshiriqlar bajarilish vaqtining qisqarishi"),
-                StatItem(number="65%", label="Xarajat qisqarishi", description="Ortiqcha sarf-xarajatlar oldini olish"),
-                StatItem(number="100%", label="Ishonchlilik", description="Standartlarga to'liq mos kelish darajasi"),
-            ],
-            speaker_speech=spk("Ko'rib turganingizdek, raqamlar o'z-o'zidan gapirmoqda. Tizimli yondashuv samaradorlikni 92 foizgacha oshirish imkonini beradi."),
-        ),
-        SlideContent(
-            layout="quote_highlight",
-            category_badge="MUHIM FALSAFA VA IQTIHOS",
-            title="Mavzuning Asosiy G'oyasi",
-            subtitle="Tizimning chuqur ma'nosi va strategik ahamiyati",
-            quote_text="\"Katta muvaffaqiyatlar — har kuni kiritiladigan kichik, ammo qat'iy intizomli intilishlar mevasidir.\"",
-            quote_author="Strategik Ekspert Xulosasi",
-            highlight_takeaway="Har bir o'zgarish avvalambor to'g'ri tushuncha va qarashdan boshlanadi.",
-            speaker_speech=spk("Ushbu iqtibos butun loyihaning ruhini ifodalaydi. Katta o'sishga erishish uchun intizomli qadamlar zarur."),
+            image_keyword=f"{safe_kw} concepts theory analysis high quality",
+            speaker_speech=spk(f"Ushbu slaydda {short_t} mavzusining asosiy poydevori bo'lgan konseptual tamoyillarni ko'rib chiqamiz."),
         ),
         SlideContent(
             layout="comparison",
-            category_badge="IMKONIYATLAR VA XAVFLAR",
-            title="Yechimning Afzalliklari",
-            subtitle="Kutilayotgan ijobiy o'zgarishlar va yuzaga kelishi mumkin bo'lgan to'siqlar yechimi",
+            category_badge="QIYOSIY TAHLIL",
+            title=f"{short_t}: Klassik vs Zamonaviy Yondashuv",
+            subtitle=f"{short_t} bo'yicha an'anaviy qarashlar hamda zamonaviy ilg'or tajribalar solishtiruvi",
             comparison_col1=ComparisonColumn(
-                header="Asosiy Yutuqlar",
-                badge="Afzalliklar",
+                header="An'anaviy Qarashlar",
+                badge="Klassik",
                 points=[
-                    "Barcha jarayonlarning shaffof va oson boshqarilishi",
-                    "Xatoliklar ehtimolini minimal darajaga tushirish",
-                    "Jamoa va tizim o'rtasidagi uyg'unlikning kuchayishi",
+                    f"{short_t} bo'yicha dastlabki nazariy tushunchalar",
+                    "Cheklangan manbalar va an'anaviy usullar",
+                    "Vaqt va resurs talab etuvchi tajribalar",
                 ],
             ),
             comparison_col2=ComparisonColumn(
-                header="Xavflarni Kamaytirish",
-                badge="Yechimlar",
+                header="Ilg'or Yechimlar",
+                badge="Zamonaviy",
                 points=[
-                    "Oldindan xavflarni prognoz qilish va profilaktika",
-                    "Favqulodda vaziyatlar uchun tayyor rejalar mavjudligi",
-                    "Doimiy xavfsizlik va barqarorlikni ta'minlash",
+                    f"{short_t} ning zamonaviy ilmiy va amaliy ahamiyati",
+                    "Yangi texnologiyalar va kengaytirilgan imkoniyatlar",
+                    "Tezkor moslashuvchanlik va yuqori samaradorlik",
                 ],
             ),
-            speaker_speech=spk("Ushbu taqqoslash orqali yangi yechimning asosiy afzalliklari hamda yuzaga kelishi mumkin bo'lgan xatarlarni qanday bartaraf etishimiz ko'rsatilgan."),
-        ),
-        SlideContent(
-            layout="matrix_2x2",
-            category_badge="4 TA USTUN (MATRITSA)",
-            title="Barqaror Rivojlanish Matritsasi",
-            subtitle="Tizimni 4 ta asosiy burchak va tamoyillar bo'yicha tahlili",
-            matrix_items=[
-                CardItem(title="Kadrlar Salohiyati", description="Iqtidorli mutaxassislarni jalb qilish va uzluksiz malakasini oshirib borish.", badge="01. Inson"),
-                CardItem(title="Texnologik Quvvat", description="Zamonaviy algoritmlar, ma'lumotlar bazasi va bulutli servislar.", badge="02. Texnika"),
-                CardItem(title="Moliyaviy Oqilonalik", description="Xarajatlarni maqbullashtirish va yuqori daromadlilikka erishish.", badge="03. Moliya"),
-                CardItem(title="Bozor Talabi", description="Auditoriya ehtiyojlarini oldindan sezish va tezkor yechim berish.", badge="04. Bozor"),
-            ],
-            speaker_speech=spk("Ushbu matritsada 4 ta asosiy ustun jamlangan: inson kapitali, texnologiya, moliya va bozor talablari."),
+            image_keyword=f"{safe_kw} modern scientific comparison research",
+            speaker_speech=spk(f"{short_t} bo'yicha klassik va zamonaviy yondashuvlarni solishtirganda, yangi usullarning afzalliklari yaqqol ko'rinadi."),
         ),
         SlideContent(
             layout="timeline_steps",
-            category_badge="YO'L XARITASI",
-            title="Amaliy Harakatlar Rejasi",
-            subtitle="Mavzuni bosqichma-bosqich hayotga tatbiq etish yo'nalishlari",
+            category_badge="TARAQQIYOT BOSQICHLARI",
+            title=f"{short_t}: Rivojlanish Yo'l Xaritasi",
+            subtitle=f"{short_t} ni tizimli ravishda o'rganish va hayotga tatbiq etish qadamlari",
             steps=[
-                CardItem(title="Dastlabki Tayyorgarlik", description="Zarur ma'lumotlar bazasini yig'ish va rejalashtirish.", badge="Qadam 1"),
-                CardItem(title="Tizimni Integratsiya Qilish", description="Yangi uslub va vositalarni ish jarayoniga kiritish.", badge="Qadam 2"),
-                CardItem(title="Sinov va Sifat Nazorati", description="Dastlabki natijalarni baholash va takomillashtirish.", badge="Qadam 3"),
-                CardItem(title="Barqaror Qo'llash", description="Muntazam ishlash rejimiga o'tish va kengaytirish.", badge="Qadam 4"),
+                CardItem(title="1. Dastlabki O'rganish", description=f"{short_t} ning kelib chiqishi va asosiy manbalarini tahlil qilish.", badge="1-Qadam"),
+                CardItem(title="2. Chuqur Tadqiqot", description=f"{short_t} dagi qonuniyatlar va amaliy omillarni solishtirish.", badge="2-Qadam"),
+                CardItem(title="3. Amaliy Sinov", description=f"{short_t} bo'yicha ilg'or tajribalarni amaliyotga joriy etish.", badge="3-Qadam"),
+                CardItem(title="4. Kengaytirish", description=f"{short_t} natijalarini to'liq mustahkamlash va keng joriy qilish.", badge="4-Qadam"),
             ],
-            speaker_speech=spk("Harakatlar rejasi to'rtta aniq qadamdan iborat. Har bir qadam o'z vaqtida va sifatli bajarilishi shart."),
+            image_keyword=f"{safe_kw} timeline progression documentary",
+            speaker_speech=spk(f"{short_t} ni tizimli amalga oshirish to'rtta muhim bosqichga tayanadi."),
+        ),
+        SlideContent(
+            layout="matrix_2x2",
+            category_badge="4 TA ASOSIY USTUN",
+            title=f"{short_t}: Barqarorlik Matritsasi",
+            subtitle=f"{short_t} mavzusini 4 ta asosiy burchak bo'yicha kompleks tahlili",
+            matrix_items=[
+                CardItem(title="Ilmiy Asos", description=f"{short_t} ning ishonchli nazariy va faktik dalillarga asoslanganligi.", badge="01. Nazariya"),
+                CardItem(title="Metodologiya", description=f"{short_t} ni o'rganishda qo'llaniladigan samarali vositalar.", badge="02. Metod"),
+                CardItem(title="Amaliy Tajriba", description=f"{short_t} bo'yicha mahalliy va xalqaro tajribalarni qo'llash.", badge="03. Amaliyot"),
+                CardItem(title="Istiqbolli Natija", description=f"{short_t} ning kelajakdagi yangi rivojlanish marralari.", badge="04. Istiqbol"),
+            ],
+            image_keyword=f"{safe_kw} matrix pillars structure",
+            speaker_speech=spk(f"Ushbu matritsa orqali biz {short_t} ning to'rtta mustahkam ustunini ko'rishimiz mumkin."),
+        ),
+        SlideContent(
+            layout="quote_highlight",
+            category_badge="ASOSIY FALSAFA",
+            title=f"{short_t}: Bosh Ilmiy G'oya",
+            subtitle=f"{short_t} ning chuqur ma'nosi va strategik ahamiyati",
+            quote_text=f"\"{short_t} — bu soha taraqqiyotini yangi bosqichga olib chiquvchi va kelajakdagi yutuqlarni belgilab beruvchi mustahkam poydevordir.\"",
+            quote_author=f"{short_t} Ekspert Xulosasi",
+            highlight_takeaway=f"{short_t} bo'yicha tizimli yondashuv har qanday qiyin vazifaning to'g'ri yechimidir.",
+            image_keyword=f"{safe_kw} philosophy wisdom reflection",
+            speaker_speech=spk(f"Ushbu g'oya {short_t} ning barcha maqsad va intilishlarini to'liq ifodalaydi."),
         ),
         SlideContent(
             layout="checklist_points",
-            category_badge="AMALIY CHECKLIST",
-            title="Muvaffaqiyat Uchun Muhim Qoidalar",
-            subtitle="Kutilgan natijaga erishishda rioya qilinishi shart bo'lgan talablar",
+            category_badge="AMALIY TAVSIYALAR",
+            title=f"{short_t}: Muvaffaqiyat Qoidalari",
+            subtitle=f"{short_t} bo'yicha kutilgan yuksak natijalarga erishish mezonlari",
             checklist=[
-                "Barcha ko'rsatkichlarni raqamlashtirish va har haftalik hisobotlarni yuritish",
-                "Xatolar ustida tezkor ishlash va qayta aloqa mexanizmini yo'lga qo'yish",
-                "Xavfsizlik protokollariga 100% qat'iy amal qilish",
-                "Innovatsiyalarni sinashdan qo'rqmaslik va doimiy yangilanish",
+                f"{short_t} ning barcha qonuniyatlariga qat'iy va izchil amal qilish",
+                f"{short_t} jarayonlarini doimiy monitoring va tahlil qilib borish",
+                f"{short_t} sohasidagi yangi xalqaro ilmiy tajribalarni o'rganish",
+                f"{short_t} natijalarini amaliyotga uzluksiz tatbiq etish",
             ],
-            speaker_speech=spk("Ushbu checklist orqali siz kundalik faoliyatda amal qilishingiz kerak bo'lgan asosiy 4 ta oltin qoidani ko'rishingiz mumkin."),
-        ),
-        SlideContent(
-            layout="cards_grid",
-            category_badge="INNOVATSIYA VA TEXNOLOGIYA",
-            title="Zamonaviy Vositalar va Usullar",
-            subtitle="Ilg'or tajribalar va innovatsion imkoniyatlardan foydalanish",
-            cards=[
-                CardItem(title="Raqamli Platformalar", description="Zamonaviy bulutli va mobil texnologiyalardan keng foydalanish.", badge="Texnologiya"),
-                CardItem(title="Intellektual Tahlil", description="Ma'lumotlar tahlili asosida to'g'ri qarorlar qabul qilish.", badge="AI & Data"),
-                CardItem(title="Moslashuvchanlik", description="Har qanday o'zgaruvchan sharoitlarga tezkor moslashish qobiliyati.", badge="Agile"),
-            ],
-            speaker_speech=spk("Zamonaviy dunyoda innovatsion vositalarsiz natijaga erishib bo'lmaydi. Biz eng ilg'or raqamli yechimlarga tayanamiz."),
-        ),
-        SlideContent(
-            layout="stats_metrics",
-            category_badge="ISTIQBOLLAR",
-            title="Kelajakdagi Ko'rsatkichlar",
-            subtitle="Uzoq muddatli istiqbol va rivojlanish darajasi",
-            stats=[
-                StatItem(number="3-5 Yil", label="Strategik qamrov", description="Uzoq muddatli barqaror o'sish rejasi"),
-                StatItem(number="+150%", label="Qamrov kengayishi", description="Foydalanuvchilar va hamkorlar o'sishi"),
-                StatItem(number="Top 5", label="Yetakchilik o'rni", description="Soha bo'yicha yuqori pog'onalarga chiqish"),
-                StatItem(number="A+", label="Sifat darajasi", description="Xalqaro talablar va standartlarga javob berish"),
-            ],
-            speaker_speech=spk("Kelajak istiqbollarimiz uzoq muddatli strategiyaga asoslangan bo'lib, o'sish sur'ati 150 foizdan oshishi kutilmoqda."),
+            image_keyword=f"{safe_kw} checklist success guidelines",
+            speaker_speech=spk(f"Mana shu to'rtta asosiy qoidaga amal qilish {short_t} bo'yicha muvaffaqiyat garovidir."),
         ),
     ]
 
@@ -395,8 +362,8 @@ async def generate_presentation_with_gemini(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.5-flash",
-        "gemini-3.8-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -522,8 +489,8 @@ async def generate_presentation_from_document(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.5-flash",
-        "gemini-3.8-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -557,189 +524,135 @@ def generate_mock_presentation(
     with_speech: bool = True,
     mode: str = "general",
 ) -> PresentationContent:
-    """
-    Offline sinov va API key yo'q holatlar uchun to'liq slide_count miqdoridagi turfa xil yuqori sifatli slaydlar.
-    """
+    """Offline yoki favqulodda holatlar uchun mavzuga 100% mos professional slaydlar to'plami."""
     short_t = topic if len(topic) < 40 else topic[:40] + "..."
+    clean_t = re.sub(r"[^a-zA-Z0-9\s]", " ", topic).strip()
+    safe_kw = " ".join(clean_t.split()[:4]) or "presentation topic"
     spk = lambda s: s if with_speech else None
+
     base_slides = [
         SlideContent(
             layout="title_slide",
-            category_badge="STRATEGIYA VA RIVOJLANISH",
+            category_badge="AKADEMIK TAQDIMOT",
             title=short_t,
-            subtitle="Zamonaviy yondashuvlar, amaliy yechimlar va kelajak istiqbollari tahlili",
-            highlight_takeaway="Yangi davr texnologiyalari va strategik o'sish sari qadam",
+            subtitle=f"{short_t}: Nazariy asoslar, tizimli tahlil va amaliy istiqbollar",
+            highlight_takeaway=f"{short_t} bo'yicha kompleks tahliliy taqdimot",
+            image_keyword=f"{safe_kw} documentary historical realistic 4k",
             speaker_speech=spk(f"Assalomu alaykum hurmatli qatnashchilar! Bugungi taqdimotimiz {short_t} mavzusiga bag'ishlanadi."),
         ),
         SlideContent(
             layout="cards_grid",
             category_badge="ASOSIY YO'NALISHLAR",
-            title="Mavzuning Eng Muhim Asoslari",
-            subtitle="Muvaffaqiyatga erishish uchun e'tibor qaratilishi zarur bo'lgan ustuvor sohalar",
+            title=f"{short_t}: Muhim Asoslar va Tamoyillar",
+            subtitle=f"{short_t} mavzusini tushunish va o'rganishda e'tibor qaratiladigan sohalar",
             cards=[
                 CardItem(
-                    title="Avtomatlashtirish",
-                    description="Kundalik takroriy jarayonlarni avtomatlashtirib, samaradorlikni 3 barobarga oshirish.",
+                    title="Nazariy Asos",
+                    description=f"{short_t} ning fundamental tushunchalari va ilmiy qoidalari majmuasi.",
                     badge="01",
                 ),
                 CardItem(
-                    title="Sun'iy Intellekt",
-                    description="Ma'lumotlarni tahlil qilish va qaror qabul qilishda eng yangi neyrotarmoqlardan foydalanish.",
+                    title="Tizimli Tahlil",
+                    description=f"{short_t} bo'yicha to'plangan ma'lumotlarni mantiqiy tartibda o'rganish.",
                     badge="02",
                 ),
                 CardItem(
-                    title="Masshtablash",
-                    description="Yechimni xalqaro standartlarga moslashtirib, auditoriya qamrovini kengaytirish.",
+                    title="Amaliy Ahamiyat",
+                    description=f"{short_t} ning zamonaviy jamiyat va soha rivojidagi hayotiy o'rni.",
                     badge="03",
                 ),
             ],
-            speaker_speech=spk("Ushbu slaydda ko'rib turganingizdek, avtomatlashtirish, sun'iy intellekt va masshtablash eng muhim ustunlar hisoblanadi."),
-        ),
-        SlideContent(
-            layout="quote_highlight",
-            category_badge="MUHIM FALSAFA VA IQTIHOS",
-            title="Mavzuning Bosh Fikri",
-            subtitle="Tizimning chuqur ma'nosi va strategik ahamiyati",
-            quote_text="\"Kelajakni bashorat qilishning eng yaxshi usuli — uni bugundan boshlab o'z qo'llaringiz bilan yaratishdir.\"",
-            quote_author="Strategik Ekspert Fikri",
-            highlight_takeaway="Rivojlanish va innovatsiyalar to'xtovsiz harakat talab qiladi.",
-            speaker_speech=spk("Ushbu fikr bizning barcha sa'y-harakatlarimiz negizini tashkil etadi."),
-        ),
-        SlideContent(
-            layout="stats_metrics",
-            category_badge="STATISTIKA VA RAQAMLAR",
-            title="Bozor Ko'rsatkichlari va Dinamika",
-            subtitle="Haqiqiy raqamlar orqali o'sish va imkoniyatlar ko'lamini baholash",
-            stats=[
-                StatItem(
-                    number="85%",
-                    label="Samaradorlik o'sishi",
-                    description="Yangi uslub joriy etilgandan keyingi ko'rsatkich",
-                ),
-                StatItem(
-                    number="3.4X",
-                    label="Tezlik ko'rsatkichi",
-                    description="Topshiriqlarni bajarish vaqti qisqarishi",
-                ),
-                StatItem(
-                    number="24/7",
-                    label="Uzluksiz faoliyat",
-                    description="Tizimning to'xtovsiz xizmat ko'rsatish darajasi",
-                ),
-                StatItem(
-                    number="99.9%",
-                    label="Aniqlik va ishonchlilik",
-                    description="Xatoliklar ehtimolini minimal darajaga tushirish",
-                ),
-            ],
-            speaker_speech=spk("Statistika shuni ko'rsatmoqdaki, samaradorlik 85 foizga oshgan va jarayonlar 3.4 barobar tezlashgan."),
+            image_keyword=f"{safe_kw} research analysis conceptual",
+            speaker_speech=spk(f"Ushbu slaydda {short_t} ning eng muhim uchta asosiy ustunini ko'rib chiqamiz."),
         ),
         SlideContent(
             layout="comparison",
-            category_badge="SOLISHTIRUV",
-            title="An'anaviy vs Yangi Yondashuv",
-            subtitle="Eski usullarning cheklovlari va innovatsion yechimning ustunliklari",
+            category_badge="QIYOSIY TAHLIL",
+            title=f"{short_t}: Yondashuvlar Solishtiruvi",
+            subtitle=f"{short_t} bo'yicha an'anaviy qarashlar hamda zamonaviy ilg'or uslublar",
             comparison_col1=ComparisonColumn(
-                header="An'anaviy Usul",
-                badge="Eski / Cheklangan",
+                header="Klassik Qarashlar",
+                badge="An'anaviy",
                 points=[
-                    "Qo'lda bajariladigan ko'p vaqt talab qiluvchi ishlar",
-                    "Inson omili sababli tez-tez uchraydigan xatolar",
-                    "Masshtablashning cheklanganligi va yuqori xarajat",
-                    "Sekin moslashuvchanlik va qotib qolgan tizim",
+                    f"{short_t} bo'yicha dastlabki nazariy tushunchalar",
+                    "Cheklangan manbalar va an'anaviy uslub",
+                    "Vaqt talab etuvchi tahlil jarayoni",
                 ],
             ),
             comparison_col2=ComparisonColumn(
-                header="Zamonaviy Yechim",
-                badge="Innovatsion / Tezkor",
+                header="Zamonaviy Tajriba",
+                badge="Ilg'or",
                 points=[
-                    "Tezkor avtomatlashgan jarayonlar va AI ko'magi",
-                    "Yuqori aniqlik va xatoliklarning kamayishi",
-                    "Tez va oson masshtablash imkoniyati",
-                    "Har qanday o'zgarishlarga tezkor moslashuv",
+                    f"{short_t} ning yangi ilmiy kashfiyotlar bilan boyitilishi",
+                    "Keng qamrovli raqamli va amaliy imkoniyatlar",
+                    "Yuqori aniqlik va tizimli xulosalar",
                 ],
             ),
-            speaker_speech=spk("An'anaviy usul bilan zamonaviy yechim o'rtasidagi farq yaqqol ko'rinib turibdi. Innovatsiyalar vaqt va mablag'ni tejaydi."),
-        ),
-        SlideContent(
-            layout="matrix_2x2",
-            category_badge="4 TA ASOSIY USTUN",
-            title="Tizimning Muvozanatli Matritsasi",
-            subtitle="To'rtta asosiy sohada muvaffaqiyatga erishish parametrlari",
-            matrix_items=[
-                CardItem(title="Kadrlar Sifati", description="Mutaxassislar malakasi va mahorati.", badge="01. Kadr"),
-                CardItem(title="Texnologiya", description="Ilg'or uskunalar va dasturiy ta'minot.", badge="02. IT"),
-                CardItem(title="Moliyaviy Nazorat", description="Hisob-kitoblar va investitsiya samaradorligi.", badge="03. Moliya"),
-                CardItem(title="Mijozlar Qoniqishi", description="Foydalanuvchilar ishonchi va sodiqligi.", badge="04. Natija"),
-            ],
-            speaker_speech=spk("To'rtta asosiy ustunimiz har bir yo'nalishda muvozanatni ta'minlaydi."),
+            image_keyword=f"{safe_kw} comparison modern historic",
+            speaker_speech=spk(f"{short_t} bo'yicha an'anaviy va zamonaviy yondashuvlarni solishtirish yangi imkoniyatlarni ko'rsatadi."),
         ),
         SlideContent(
             layout="timeline_steps",
-            category_badge="HARKATLAR REJASI",
-            title="Muvaffaqiyatga Yetaklovchi Bosqichlar",
-            subtitle="Rejadan natijagacha bo'lgan aniq va tizimli qadamlar",
+            category_badge="BOSQICHLAR",
+            title=f"{short_t}: Taraqqiyot Yo'li",
+            subtitle=f"{short_t} ning shakllanishi va rivojlanish bosqichlari ketma-ketligi",
             steps=[
-                CardItem(
-                    title="Audit va Tahlil",
-                    description="Mavjud holatni o'rganish va asosiy muammolarni aniqlash.",
-                    badge="1-Bosqich",
-                ),
-                CardItem(
-                    title="Strategiya Ishlab Chiqish",
-                    description="Maqsadli yo'l xaritasini va texnik talablarni belgilash.",
-                    badge="2-Bosqich",
-                ),
-                CardItem(
-                    title="Sinov va Joriy Qilish",
-                    description="Pilot loyihani ishga tushirish va dastlabki natijalarni olish.",
-                    badge="3-Bosqich",
-                ),
-                CardItem(
-                    title="To'liq Masshtablash",
-                    description="Barcha bo'g'inlarda yangi tizimni to'liq ishga tushirish.",
-                    badge="4-Bosqich",
-                ),
+                CardItem(title="1. Dastlabki Shakllanish", description=f"{short_t} ning ildizlari va asosiy omillari.", badge="1-Bosqich"),
+                CardItem(title="2. Rivojlanish Davri", description=f"{short_t} bo'yicha tizimli tajribalarning to'planishi.", badge="2-Bosqich"),
+                CardItem(title="3. Zamonaviy Bosqich", description=f"{short_t} ning bugungi kundagi faol o'rganilishi.", badge="3-Bosqich"),
+                CardItem(title="4. Kelajak Marralari", description=f"{short_t} yuzasidan yangi kutilayotgan natijalar.", badge="4-Bosqich"),
             ],
-            speaker_speech=spk("Rejamiz to'rtta tizimli bosqichga bo'lingan bo'lib, har bir qadam puxta hisob-kitoblarga asoslangan."),
+            image_keyword=f"{safe_kw} timeline progress architecture",
+            speaker_speech=spk(f"{short_t} taraqqiyot yo'li bosqichma-bosqich takomillashib borganini ko'rishimiz mumkin."),
+        ),
+        SlideContent(
+            layout="quote_highlight",
+            category_badge="MUHIM FALSAFA",
+            title=f"{short_t}: Bosh Ilmiy Fikr",
+            subtitle=f"{short_t} mavzusining chuqur ma'nosi va strategik ahamiyati",
+            quote_text=f"\"{short_t} — bu soha rivojining poydevori va yangi marralar kalitidir.\"",
+            quote_author=f"{short_t} Ekspert Xulosasi",
+            highlight_takeaway=f"{short_t} bo'yicha har bir yangi bilim kelajakdagi muvaffaqiyat garovidir.",
+            image_keyword=f"{safe_kw} knowledge philosophy insight",
+            speaker_speech=spk(f"Ushbu xulosa {short_t} ning butun mohiyatini ifodalaydi."),
         ),
         SlideContent(
             layout="checklist_points",
-            category_badge="AMALIY TAVSIYALAR",
-            title="Amaliy Harakatlar Ro'yxati",
-            subtitle="Rejani muvaffaqiyatli amalga oshirish qoidalari",
+            category_badge="TAVSIYALAR",
+            title=f"{short_t}: Asosiy Qoidalar",
+            subtitle=f"{short_t} bo'yicha muvaffaqiyatga erishishning muhim talablari",
             checklist=[
-                "Barcha jarayonlarni aniq metrikalar orqali o'lchab borish",
-                "Jamoaviy mas'uliyat va muntazam sinovlar o'tkazish",
-                "Xavfsizlik va barqarorlik talablariga rioya qilish",
-                "Olingan natijalarni tahlil qilib doimiy takomillashish",
+                f"{short_t} bo'yicha to'plangan ilmiy manbalarni tahlil qilish",
+                f"{short_t} qonuniyatlariga doimiy ravishda amal qilish",
+                f"{short_t} sohasidagi xalqaro tajribalarni o'rganish",
+                f"{short_t} ning yangi amaliy natijalarini joriy etish",
             ],
-            speaker_speech=spk("Ushbu qoidalarga amal qilgan holda, har qanday to'siqni yengib o'tish mumkin."),
+            image_keyword=f"{safe_kw} guidelines checklist advice",
+            speaker_speech=spk(f"Mana shu to'rtta asosiy qoidaga amal qilish yuqori natijalarni ta'minlaydi."),
         ),
         SlideContent(
             layout="conclusion",
-            category_badge="XULOSA VA KELAJAK",
-            title="Yangi Cho'qqilar Sari Dadil Qadam",
-            subtitle="Innovatsiyalarni bugundan boshlab joriy qilish — ertangi kun yetakchiligi garovi",
-            highlight_takeaway="\"Eng yaxshi bashorat — bu kelajakni o'z qo'llaringiz bilan yaratishdir.\"",
+            category_badge="XULOSA",
+            title=f"{short_t}: Yakuniy Xulosalar",
+            subtitle=f"{short_t} bo'yicha umumiy xulosalar va kelajak istiqbollari",
+            highlight_takeaway=f"{short_t} bo'yicha to'g'ri tushuncha va izlanish doimiy o'sish garovidir.",
             cards=[
-                CardItem(
-                    title="Katta imkoniyatlar",
-                    description="Bugun boshlangan harakat ertaga yetakchilikni ta'minlaydi.",
-                    badge="Natija",
-                ),
-                CardItem(
-                    title="Hamkorlikka tayyormiz",
-                    description="Savollar va takliflar uchun biz bilan bog'laning.",
-                    badge="Aloqa",
-                ),
+                CardItem(title="Ilmiy Xulosa", description=f"{short_t} mavzusi dolzarb va chuqur ahamiyatga ega ekanligi isbotlandi.", badge="Xulosa"),
+                CardItem(title="Savol-Javob", description="E'tiboringiz uchun rahmat, savollaringizni berishingiz mumkin.", badge="Yakun"),
             ],
-            speaker_speech=spk("Xulosa qilib aytganda, bugungi imkoniyatlardan unumli foydalanish ertangi muvaffaqiyatimiz garovidir. E'tiboringiz uchun rahmat!"),
+            image_keyword=f"{safe_kw} conclusion success future",
+            speaker_speech=spk(f"E'tiboringiz uchun katta rahmat! {short_t} bo'yicha savollaringiz bo'lsa, javob berishga tayyorman."),
         ),
     ]
 
-    init_pres = PresentationContent(topic=topic, language=language, slides=base_slides)
-    return _ensure_slide_count(init_pres, slide_count, topic, language, with_speech=with_speech)
+    return _ensure_slide_count(
+        PresentationContent(topic=topic, language=language, slides=base_slides),
+        target_count=slide_count,
+        topic=topic,
+        language=language,
+        with_speech=with_speech,
+    )
+
 
 
 async def translate_presentation_content(
@@ -763,7 +676,8 @@ async def translate_presentation_content(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -823,7 +737,8 @@ async def tweak_single_slide(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -898,7 +813,8 @@ async def generate_defense_questions(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -967,7 +883,8 @@ async def evaluate_defense_answer(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -1064,7 +981,8 @@ async def analyze_image_and_extract_topic(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.8-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -1128,7 +1046,8 @@ async def analyze_voice_and_extract_command(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.8-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
@@ -1224,7 +1143,8 @@ async def generate_quiz_duel_questions(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.8-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()

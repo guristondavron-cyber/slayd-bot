@@ -4,6 +4,8 @@ import logging
 import os
 import sys
 import io
+import re
+
 import uuid
 from urllib.parse import quote_plus
 from typing import Dict, Any, Optional, Tuple
@@ -4447,7 +4449,7 @@ async def cb_create_video(callback: CallbackQuery, state: FSMContext, bot: Bot):
 
 
 @router.message(Command("video", "kino", "film"))
-async def cmd_create_video(message: Message, state: FSMContext, bot: Bot):
+async def cmd_create_video(message: Message, state: FSMContext, command: CommandObject, bot: Bot):
     user_id = message.from_user.id
     is_subbed, unsub_channels = await check_channel_subscription(bot, user_id)
     if not is_subbed:
@@ -4458,6 +4460,22 @@ async def cmd_create_video(message: Message, state: FSMContext, bot: Bot):
         return
 
     if not await check_phone_gate(message, user_id, bot):
+        return
+
+    arg_topic = (command.args or "").strip() if command else ""
+    if arg_topic:
+        await state.update_data(video_topic=arg_topic)
+        await state.set_state(VideoCreationState.waiting_for_duration)
+        await message.answer(
+            f"🎬 <b>AI Video Yaratish</b>\n\n"
+            f"📌 Tanlangan mavzu: <b>«{arg_topic}»</b>\n\n"
+            "⏱ <b>Videoning davomiyligini tanlang:</b>\n\n"
+            "• ⚡️ <b>30 soniya:</b> Tezkor rolik (3 ta sahna)\n"
+            "• 📱 <b>1 daqiqa:</b> Reels / Shorts / TikTok (6 ta sahna)\n"
+            "• 🎬 <b>3 daqiqa:</b> To'liq film (9 ta sahna)",
+            parse_mode="HTML",
+            reply_markup=video_duration_keyboard(),
+        )
         return
 
     await state.set_state(VideoCreationState.waiting_for_topic)
@@ -4533,7 +4551,7 @@ async def cb_video_voice(callback: CallbackQuery, state: FSMContext, bot: Bot):
     selected_voice = voice_map.get(voice_key, "uz-UZ-MadinaNeural")
 
     data = await state.get_data()
-    topic = data.get("video_topic", "AI Video")
+    topic = data.get("video_topic") or data.get("topic") or "AI Video"
     duration_preset = data.get("video_duration", "60s")
     await state.clear()
 
@@ -4582,6 +4600,7 @@ async def cb_video_voice(callback: CallbackQuery, state: FSMContext, bot: Bot):
             status_msg=status_msg,
             target_msg=callback.message,
             bot=bot,
+            required_slides=required_slides if (not is_vip and not is_user_adm) else 0,
         )
     )
 
@@ -4594,6 +4613,7 @@ async def execute_video_generation(
     status_msg: Message,
     target_msg: Message,
     bot: Bot,
+    required_slides: int = 0,
 ):
     """Orqa fonda videoni xavfsiz va uzluksiz generatsiya qilish."""
     last_update_text = ""
@@ -4624,18 +4644,17 @@ async def execute_video_generation(
         )
 
         if not video_path or not os.path.exists(video_path):
-            await status_msg.edit_text(
+            if required_slides > 0:
+                database.add_slides_to_user(user_id, required_slides)
+            await safe_edit_or_answer(
+                status_msg,
                 "❌ <b>Videoni yaratishda xatolik yuz berdi.</b>\n"
-                "Iltimos, birozdan so'ng qayta urinib ko'ring yoki mavzuni boshqacharoq yozing.",
+                "Sizdan yechilgan slaydlar hisobingizga to'liq qaytarildi.\n\n"
+                "Iltimos, birozdan so'ng qayta urinib ko'ring yoki mavzuni soddaroq yozing.",
                 parse_mode="HTML",
                 reply_markup=main_menu_keyboard(user_id),
             )
             return
-
-        try:
-            await status_msg.delete()
-        except Exception:
-            pass
 
         dur_labels = {
             "30s": "30 soniya",
@@ -4663,13 +4682,24 @@ async def execute_video_generation(
             ]
         )
 
+        try:
+            await status_msg.edit_text("🚀 <b>Video tayyor bo'ldi!</b> Telegramga yuborilmoqda...", parse_mode="HTML")
+        except Exception:
+            pass
+
         await bot.send_video(
             chat_id=user_id,
             video=FSInputFile(video_path),
             caption=caption,
             parse_mode="HTML",
             reply_markup=finish_kb,
+            request_timeout=300,
         )
+
+        try:
+            await status_msg.delete()
+        except Exception:
+            pass
 
         try:
             if os.path.exists(video_path):
@@ -4679,14 +4709,30 @@ async def execute_video_generation(
 
     except Exception as e:
         logger.error(f"execute_video_generation error: {e}", exc_info=True)
+        if required_slides > 0:
+            try:
+                database.add_slides_to_user(user_id, required_slides)
+            except Exception:
+                pass
         try:
-            await status_msg.edit_text(
-                "❌ <b>Videoni tayyorlashda xatolik yuz berdi.</b>\nIltimos, qayta urinib ko'ring.",
+            await safe_edit_or_answer(
+                status_msg,
+                "❌ <b>Videoni tayyorlashda xatolik yuz berdi.</b>\n"
+                "Sizdan yechilgan slaydlar hisobingizga to'liq qaytarildi.\n\n"
+                "Iltimos, qaytadan urinib ko'ring yoki boshqa mavzu yozing.",
                 reply_markup=main_menu_keyboard(user_id),
                 parse_mode="HTML",
             )
         except Exception:
-            pass
+            try:
+                await bot.send_message(
+                    chat_id=user_id,
+                    text="❌ <b>Videoni tayyorlashda xatolik yuz berdi.</b>\nLimitingiz to'liq qaytarildi.",
+                    reply_markup=main_menu_keyboard(user_id),
+                    parse_mode="HTML",
+                )
+            except Exception:
+                pass
 
 
 # ------------------ TELEGRAM GURUH REJIMI (GROUP BOT INTEGRATION) ------------------
@@ -6314,6 +6360,15 @@ async def handle_direct_text(message: Message, state: FSMContext, bot: Bot):
     user_id = message.from_user.id
     if not await check_phone_gate(message, user_id, bot):
         return
+
+    is_subbed, unsub_channels = await check_channel_subscription(bot, user_id)
+    if not is_subbed:
+        await message.answer(
+            "⚠️ Botdan foydalanish uchun homiy kanal(lar)ga a'zo bo'ling:",
+            reply_markup=channel_sub_keyboard(unsub_channels),
+        )
+        return
+
     user_dict, _, _ = database.get_or_create_user(user_id, message.from_user.first_name, message.from_user.username)
     if user_dict["slides_left"] <= 0 and not user_dict.get("is_vip"):
         await message.answer(
@@ -6321,8 +6376,56 @@ async def handle_direct_text(message: Message, state: FSMContext, bot: Bot):
             reply_markup=InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="💎 Tariflar & To'lov", callback_data="btn_tariffs")]])
         )
         return
+
+    raw_text = (message.text or "").strip()
+    text_lower = raw_text.lower()
+
+    # Video / Rolik / Film yaratish niyati tekshiriladi
+    video_triggers = ["video", "rolik", "film", "kino", "klip"]
+    if any(trigger in text_lower for trigger in video_triggers):
+        clean_topic = raw_text
+        patterns_to_remove = [
+            r"(?i)\bhaqida\s+(video|rolik|film|kino|klip)(\s+(qilib|yaratib|chiqarib|tayyorlab)\s*ber)?\b",
+            r"(?i)\b(video|rolik|film|kino|klip)(\s+(qilib|yaratib|chiqarib|tayyorlab)\s*ber)?\b",
+            r"(?i)\b(tayyorlab|yaratib|qilib|chiqarib)\s*ber\b",
+            r"[:\-\–\—]"
+        ]
+        for p in patterns_to_remove:
+            clean_topic = re.sub(p, " ", clean_topic)
+        clean_topic = " ".join(clean_topic.split()).strip()
+
+        if len(clean_topic) >= 3:
+            await state.update_data(video_topic=clean_topic)
+            await state.set_state(VideoCreationState.waiting_for_duration)
+            await message.answer(
+                f"🎬 <b>AI Video Yaratish</b>\n\n"
+                f"📌 Tanlangan mavzu: <b>«{clean_topic}»</b>\n\n"
+                "⏱ <b>Videoning davomiyligini tanlang:</b>\n\n"
+                "• ⚡️ <b>30 soniya:</b> Tezkor rolik (3 ta bog'langan sahna)\n"
+                "• 📱 <b>1 daqiqa:</b> Reels / Shorts / TikTok (6 ta sahna)\n"
+                "• 🎬 <b>3 daqiqa:</b> To'liq film / Hujjatli lavha (9 ta sahna)",
+                parse_mode="HTML",
+                reply_markup=video_duration_keyboard(),
+            )
+            return
+        else:
+            await state.set_state(VideoCreationState.waiting_for_topic)
+            text = (
+                "🎬 <b>AI VIDEO / FILM YARATISH REJIMI</b> 🎬\n"
+                "━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                "Istalgan mavzu yoki video g'oyangizni yozib yuboring:\n\n"
+                "<i>Masalan:</i>\n"
+                "• <i>Amir Temur saltanati va buyuk g'alabalari</i>\n"
+                "• <i>2050-yildagi kelajak shahri</i>\n\n"
+                "❌ <i>Bekor qilish uchun /cancel deb yozing.</i>"
+            )
+            kb = InlineKeyboardMarkup(inline_keyboard=[[InlineKeyboardButton(text="🔙 Bekor qilish", callback_data="btn_cancel")]])
+            await message.answer(text, parse_mode="HTML", reply_markup=kb)
+            return
+
     await state.set_state(SlideCreationState.waiting_for_topic)
-    await process_topic_step(message, state, bot)
+    await process_text_topic(message, state)
+
 
 
 # ------------------ ⚔️ BILIMLAR JANGI: AI VIKTORINA DUEL ------------------

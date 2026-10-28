@@ -79,11 +79,17 @@ def get_font_file() -> Optional[str]:
     """Tizimdagi mos shrift faylini aniqlaydi (subtitrlar uchun)."""
     candidates = [
         "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+        "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf",
         "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
+        "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf",
+        "/usr/share/fonts/truetype/freefont/FreeSans.ttf",
         "/usr/share/fonts/TTF/DejaVuSans.ttf",
+        "/usr/share/fonts/dejavu-sans-fonts/DejaVuSans.ttf",
         "C:/Windows/Fonts/arial.ttf",
         "C:/Windows/Fonts/tahoma.ttf",
+        "C:/Windows/Fonts/segoeui.ttf",
         "/System/Library/Fonts/Helvetica.ttc",
+        "/Library/Fonts/Arial.ttf",
     ]
     for c in candidates:
         if os.path.exists(c):
@@ -168,14 +174,16 @@ QAT'IY QOIDALAR:
 """
 
     candidate_models = [
-        config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.8-flash",
+        config.GEMINI_MODEL,
         "gemini-flash-latest",
+        "gemini-3.8-flash",
         "gemini-3.5-flash",
     ]
+    seen = set()
+    models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
 
-    for model_name in candidate_models:
+    for model_name in models_to_try:
         try:
             logger.info(f"Gemini {model_name} orqali video ssenariysi tuzilmoqda...")
             response = await client.aio.models.generate_content(
@@ -242,7 +250,7 @@ def download_scene_image(visual_prompt: str, output_path: str, seed: int) -> boo
     """
     Pollinations AI (Flux / Turbo) va Picsum orqali yuqori sifatli 1280x720 fotorealistik kadrni tezkor yuklab oladi.
     """
-    clean_prompt = visual_prompt.strip()
+    clean_prompt = visual_prompt.strip()[:200]
     full_prompt = (
         f"{clean_prompt}, cinematic movie scene, master photography, hyperrealistic 8k, "
         f"dramatic dynamic lighting, highly detailed, photorealistic, atmospheric, 16:9 widescreen, no text, no watermark"
@@ -365,7 +373,7 @@ def render_single_scene_clip(
                 "-c:a", "aac", "-b:a", "192k", "-shortest",
                 output_clip_path,
             ]
-            res1 = subprocess.run(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=20, stdin=subprocess.DEVNULL)
+            res1 = subprocess.run(cmd1, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, stdin=subprocess.DEVNULL)
             if res1.returncode == 0 and os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000:
                 return True
         except Exception as e:
@@ -390,7 +398,7 @@ def render_single_scene_clip(
             "-c:a", "aac", "-b:a", "192k", "-shortest",
             output_clip_path,
         ]
-        res2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=18, stdin=subprocess.DEVNULL)
+        res2 = subprocess.run(cmd2, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45, stdin=subprocess.DEVNULL)
         if res2.returncode == 0 and os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000:
             return True
     except Exception as e:
@@ -409,7 +417,7 @@ def render_single_scene_clip(
             "-c:a", "aac", "-b:a", "192k", "-shortest",
             output_clip_path,
         ]
-        res3 = subprocess.run(cmd3, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=15, stdin=subprocess.DEVNULL)
+        res3 = subprocess.run(cmd3, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=35, stdin=subprocess.DEVNULL)
         if res3.returncode == 0 and os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 1000:
             return True
     except Exception as e:
@@ -426,7 +434,7 @@ def render_single_scene_clip(
             "-t", f"{duration:.2f}",
             output_clip_path,
         ]
-        subprocess.run(cmd4, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=12, stdin=subprocess.DEVNULL)
+        subprocess.run(cmd4, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25, stdin=subprocess.DEVNULL)
         return os.path.exists(output_clip_path) and os.path.getsize(output_clip_path) > 500
     except Exception as e:
         logger.error(f"Tier 4 render fatal: {e}")
@@ -459,7 +467,7 @@ def assemble_all_clips(
             "-c", "copy",
             temp_merged,
         ]
-        res = subprocess.run(cmd_concat, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=25, stdin=subprocess.DEVNULL)
+        res = subprocess.run(cmd_concat, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=45, stdin=subprocess.DEVNULL)
         if res.returncode != 0 or not os.path.exists(temp_merged):
             # Fallback re-encode
             cmd_reencode = [
@@ -470,7 +478,7 @@ def assemble_all_clips(
                 "-c:v", "libx264", "-pix_fmt", "yuv420p", "-preset", "ultrafast", "-c:a", "aac",
                 temp_merged,
             ]
-            subprocess.run(cmd_reencode, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=40, stdin=subprocess.DEVNULL)
+            subprocess.run(cmd_reencode, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=90, stdin=subprocess.DEVNULL)
 
         if not os.path.exists(temp_merged):
             return False
@@ -490,7 +498,7 @@ def assemble_all_clips(
             "-b:a", "192k",
             final_output_path,
         ]
-        res_final = subprocess.run(cmd_final, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=35, stdin=subprocess.DEVNULL)
+        res_final = subprocess.run(cmd_final, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=60, stdin=subprocess.DEVNULL)
         if res_final.returncode == 0 and os.path.exists(final_output_path):
             return True
 

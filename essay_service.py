@@ -54,6 +54,86 @@ def _clean_json_string(raw: str) -> str:
     return cleaned.strip()
 
 
+
+def _infer_domain_metadata(topic: str) -> dict:
+    t = topic.lower()
+    if any(w in t for w in ["tarix", "temur", "bobur", "xonlik", "davlat", "urush", "madaniyat", "meros", "alloma", "navoiy", "falsafa"]):
+        return {
+            "faculty": "Tarix va gumanitar fanlar fakulteti",
+            "subject": "Tarixiy va ijtimoiy-gumanitar fanlar",
+            "refs": [
+                f"{topic} tarixi va manbashunosligi. Darslik. — Toshkent: Fan va texnologiya, 2024. — 310 b.",
+                "O'zbekiston tarixi: qadimgi davrdan bugungi kungacha. Akademik nashr. — Toshkent: O'zbekiston, 2023. — 420 b.",
+                "Sohaga oid tarixiy qo'lyozmalar, manbalar va arxiv hujjatlari to'plami, 2024.",
+                "Temur tuzuklari va davlat boshqaruvi merosi. — Toshkent: Adabiyot, 2023. — 256 b.",
+                "Sharq allomalari va mutafakkirlari ilmiy merosi. — Samarqand: Zarafshon, 2024. — 190 b.",
+                "O'zbekiston Respublikasi Fanlar akademiyasi Tarix instituti ilmiy to'plamlari, 2025.",
+            ]
+        }
+    elif any(w in t for w in ["tibbiyot", "kasallik", "yurak", "qon", "davolash", "anatomiya", "klinika", "dorivor", "salomatlik"]):
+        return {
+            "faculty": "Davolash ishi va tibbiy profilaktika fakulteti",
+            "subject": "Klinik va nazariy tibbiyot",
+            "refs": [
+                f"{topic}: etiologiyasi, patogenezi va klinik kechishi. Darslik. — Toshkent: Tibbiyot nashriyoti, 2024. — 380 b.",
+                "Klinik diagnostika va zamonaviy davolash standartlari. — Toshkent: Yangi asr avlodi, 2023. — 450 b.",
+                "Jahon sog'liqni saqlash tashkiloti (JSST) tavsiyalari va ilmiy hisobotlari, 2024-2025 yy.",
+                "Ichki kasalliklar propedevtikasi va zamonaviy terapiya asoslari. — Toshkent: Fan, 2024. — 320 b.",
+                "O'zbekiston Respublikasi Sog'liqni saqlash vazirligi klinik protokollari to'plami, 2025.",
+                "Eksperimental va klinik tibbiyot jurnali ilmiy maqolalari, 2024.",
+            ]
+        }
+    elif any(w in t for w in ["huquq", "qonun", "jinoyat", "sud", "fuqarolik", "konstitutsiya", "advokat"]):
+        return {
+            "faculty": "Yuridik va huquqshunoslik fakulteti",
+            "subject": "Huquqshunoslik va davlat huquqi",
+            "refs": [
+                f"{topic}: nazariya va amaliyot. Darslik. — Toshkent: Yuridik adabiyotlar, 2024. — 340 b.",
+                "O'zbekiston Respublikasi Konstitutsiyasi va qonunchilik hujjatlari to'plami. — Toshkent: Adolat, 2024.",
+                "O'zbekiston Respublikasining tegishli Kodekslari va rasmiy sharhlari, 2024-2025 yy.",
+                "Sud va huquqni muhofaza qiluvchi organlar faoliyatining huquqiy asoslari. — Toshkent: TDYuU, 2023. — 280 b.",
+                "Xalqaro huquqiy me'yorlar va qiyosiy qonunchilik tahlili. — Toshkent: Huquq, 2024.",
+                "Huquqiy axborot portali (lex.uz) me'yoriy hujjatlari, 2025.",
+            ]
+        }
+    elif any(w in t for w in ["pedagogika", "ta'lim", "tarbiya", "maktab", "metod", "dars", "o'qituvchi", "psixologiya"]):
+        return {
+            "faculty": "Pedagogika va psixologiya fakulteti",
+            "subject": "Zamonaviy pedagogik texnologiyalar",
+            "refs": [
+                f"{topic}: o'qitish metodikasi va zamonaviy yondashuvlar. — Toshkent: O'qituvchi, 2024. — 290 b.",
+                "Uzluksiz ta'lim tizimida innovatsion pedagogik texnologiyalar. — Toshkent: Fan va texnologiya, 2023. — 315 b.",
+                "Pedagogik mahorat va psixologiya asoslari. Darslik. — Toshkent: Iste'dod, 2024. — 260 b.",
+                "Ilg'or xalqaro ta'lim tajribalari va dars ishlanmalari to'plami, 2024.",
+                "Ta'lim sifatini baholash va ta'lim to'g'risidagi qonunchilik asoslari, 2025.",
+            ]
+        }
+    elif any(w in t for w in ["iqtisod", "moliya", "bank", "buxgalteriya", "soliq", "marketing", "menejment", "bozor"]):
+        return {
+            "faculty": "Iqtisodiyot va moliya fakulteti",
+            "subject": "Iqtisodiy tahlil va boshqaruv",
+            "refs": [
+                f"{topic}: nazariya, amaliyot va tahlil. Darslik. — Toshkent: Iqtisod-Moliya, 2024. — 350 b.",
+                "Makroiqtisodiy barqarorlik va moliya bozorlari taraqqiyoti. — Toshkent: Fan, 2023. — 280 b.",
+                "O'zbekiston Respublikasi Statistika agentligi ma'lumotlari (stat.uz), 2025-2026 yy.",
+                "Zamonaviy korporativ boshqaruv va investitsiyalar tahlili. — Toshkent: Iqtisodiyot, 2024. — 320 b.",
+                "Iqtisodiy islohotlar va sohani modernizatsiyalash strategiyasi. — Toshkent: Yangi asr, 2024.",
+            ]
+        }
+    else:
+        return {
+            "faculty": "Tabiiy va ijtimoiy-gumanitar fanlar fakulteti",
+            "subject": "Soha nazariyasi va amaliyoti",
+            "refs": [
+                f"{topic}: ilmiy-nazariy asoslar va amaliy tahlil. Darslik. — Toshkent: Fan va texnologiya, 2024. — 310 b.",
+                "Zamonaviy ilmiy tadqiqotlar va innovatsion metodologiya. — Toshkent: Universitet, 2023. — 275 b.",
+                "Sohaga oid me'yoriy-uslubiy qo'llanmalar va ilmiy maqolalar to'plami, 2024.",
+                "Xalqaro ilmiy jurnallar va konferensiya materiallari tahlili, 2024-2025 yy.",
+                "Sohani rivojlantirishning strategik istiqbollari va amaliy tavsiyalar. — Toshkent: O'zbekiston, 2024.",
+            ]
+        }
+
+
 # ------------------ GEMINI BILAN KONTENT GENERATSIYASI ------------------
 async def generate_academic_essay_content(
     topic: str,
@@ -67,81 +147,75 @@ async def generate_academic_essay_content(
     author_str = author_name or "Talaba"
     univ_str = university or "O'zbekiston Respublikasi Oliy Ta'lim Muassasasi"
 
+    domain_meta = _infer_domain_metadata(topic)
+
     fallback_essay = AcademicEssay(
         topic=topic,
         university=univ_str,
-        faculty="Axborot texnologiyalari va iqtisodiyot fakulteti",
+        faculty=domain_meta["faculty"],
         author_name=author_str,
         teacher_name="Dotsent, Ilmiy rahbar",
         year="2026",
         city="Toshkent",
         introduction=(
-            f"Universitetda «{topic}» mavzusini o'rganishga kirishganimizda, bu yo'nalish nafaqat darsliklardagi qoidalar, balki kundalik hayotimiz va amaliy sohalar uchun ham qanchalik zarurligiga amin bo'ldik. "
-            "Har qanday sohada bo'lgani kabi, bu yerda ham o'ziga xos qiyinchiliklar va hal qilinishi kerak bo'lgan masalalar yetarlicha topiladi.\n\n"
-            f"Ushbu mustaqil ishni yozishdan asosiy maqsadim — «{topic}» qanday ishlashini, uning amaliy foydasini oddiy va tushunarli misollar yordamida tahlil qilishdir. "
-            "Ish davomida nazariy tushunchalarni ko'rib chiqish bilan birga, amaliyotda uchraydigan kamchiliklarni bartaraf etish bo'yicha shaxsiy fikr va takliflarimni bayon etishga harakat qildim."
+            f"Oliy ta'lim muassasalarida «{topic}» mavzusini tadqiq etish bugungi kunda nazariy va amaliy jihatdan dolzarb ahamiyat kasb etmoqda. "
+            f"Ushbu yo'nalish {domain_meta['subject'].lower()} tizimida muhim o'rin tutib, sohaning asosiy qonuniyatlari va istiqbollarini belgilab beradi.\n\n"
+            f"Tadqiqotning asosiy maqsadi — «{topic}» doirasidagi konseptual asoslarni o'rganish, sohadagi mavjud holatni tahlil qilish hamda samaradorlikni oshirish bo'yicha ilmiy xulosalar ishlab chiqishdan iborat. "
+            "Ish davomida mavzuga oid asosiy ilmiy manbalar, xalqaro va mahalliy me'yorlar qiyosiy tahlil qilinib, shaxsiy ilmiy takliflar bayon etilgan."
         ),
         chapters=[
             Chapter(
-                title=f"I BOB. «{topic.upper()}»NING ASOSIY TUSHUNCHALARI VA MOHIYATI",
+                title=f"I BOB. «{topic.upper()}»NING ILMIY-NAZARIY ASOSLARI VA MOHIYATI",
                 sections=[
                     ChapterSection(
-                        title=f"1.1. «{topic}» nima va u qanday rivojlanib kelgan?",
+                        title=f"1.1. «{topic}» tushunchasining nazariy mohiyati va shakllanish bosqichlari",
                         content=(
-                            f"Agar «{topic}» tushunchasiga chuqurroq qaraydigan bo'lsak, uning ildizlari ancha yillik tajribaga borib taqalishini ko'ramiz. "
-                            "Kitoblarda bu haqda turli xil murakkab ta'riflar keltirilgan bo'lsa-da, oddiy qilib aytganda, bu tizim inson faoliyatini yengillashtirish va aniqlikni ta'minlashga xizmat qiladi.\n\n"
-                            "Tadqiqotchilarning ishlarini solishtirib o'rganganda, vaqt o'tishi bilan dastlabki oddiy usullardan zamonaviy kompleks yondashuvlarga o'tilgani yaqqol ko'rinadi. "
-                            "Bu esa sohaning to'xtab qolmasdan, yangi texnologiyalar bilan birga ilgarilab borayotganini isbotlaydi."
+                            f"«{topic}» tushunchasining ilmiy poydevorini o'rganish shuni ko'rsatadiki, mazkur soha ko'p yillik tadqiqotlar va ilmiy izlanishlar natijasida takomillashib kelgan. "
+                            f"Ilmiy adabiyotlarda {topic.lower()} bo'yicha turlicha konseptual yondashuvlar mavjud bo'lib, ularning har biri mavzuning o'ziga xos qirralarini ochib beradi.\n\n"
+                            "Nazariy qonuniyatlarni solishtirish orqali ushbu sohaning fundamental qoidalari tizimlashtiriladi. "
+                            "Bu esa mavzuni yanada chuqurroq anglash va uni amaliyot bilan bog'lashda muhim zamin yaratadi."
                         ),
                     ),
                     ChapterSection(
-                        title="1.2. Amaliyotdagi o'rni va hayotiy ahamiyati",
+                        title=f"1.2. {topic} ning zamonaviy fanda tutgan o'rni va asosiy tamoyillari",
                         content=(
-                            "Nazariya qanchalik mukammal bo'lmasin, uning qiymati amaliyotda qay darajada foyda berishi bilan o'lchanadi. "
-                            "Misol uchun, ushbu tizim to'g'ri yo'lga qo'yilsa, ishdagi chalkashliklar keskin kamayadi va vaqt tejaladi.\n\n"
-                            "O'zimizning mahalliy tajribani kuzatadigan bo'lsak, ko'plab korxona va muassasalarda ushbu yondashuv asta-sekin tatbiq etilmoqda. "
-                            "Albatta, hali qilinadigan ishlar ko'p, lekin boshlangan qadamlar kelajak uchun mustahkam zamin yaratmoqda."
+                            f"Har qanday ilmiy nazariyaning ahamiyati uning amaliy hayotdagi samaradorligi bilan belgilanadi. "
+                            f"{topic} doirasidagi ilg'or tamoyillarni qo'llash tizimdagi noaniqliklarni kamaytiradi va aniq natijalarga erishishni ta'minlaydi.\n\n"
+                            "Bugungi kunda sohadagi ilg'or tajribalarni umumlashtirish orqali samaradorlikni sezilarli darajada oshirish imkoniyatlari mavjud. "
+                            "Bu jarayon uzluksiz yangilanish va zamonaviy usullardan unumli foydalanishni taqozo etadi."
                         ),
                     ),
                 ],
             ),
             Chapter(
-                title=f"II BOB. MAVJUD MUAMMOLAR VA ULARNI HAL ETISH YO'LLARI",
+                title=f"II BOB. «{topic.upper()}»NING AMALIY TAHLILI VA TAKOMILLASHTIRISH YO'LLARI",
                 sections=[
                     ChapterSection(
-                        title="2.1. Bugungi kunda duch kelinayotgan asosiy kamchiliklar",
+                        title=f"2.1. {topic} bo'yicha amaliy holat tahlili va uchrayotgan masalalar",
                         content=(
-                            "Har qanday yangi jarayon singari, bu sohada ham ma'lum kamchiliklar ko'zga tashlanadi. "
-                            "Eng asosiy to'siqlardan biri — malakali kadrlar yetishmovchiligi va texnik ta'minotning har doim ham talab darajasida emasligidir.\n\n"
-                            "Bundan tashqari, ayrim joylarda eski usullardan voz kechishga nisbatan ikkilanish mavjud. "
-                            "Buni bartaraf etmasdan turib, yuqori natijalarga erishish mushkul."
+                            f"Amaliyot tahlili shuni ko'rsatadiki, «{topic}» sohasida ijobiy siljishlar bilan bir qatorda hal etilishi lozim bo'lgan qator vazifalar mavjud. "
+                            "Xususan, uslubiy ta'minotni yanada boyitish va yangi yondashuvlarni kengroq tatbiq etish zarurati ko'zga tashlanadi.\n\n"
+                            "Mavjud holatni kompleks o'rganish orqali jarayonlarning samaradorligiga ta'sir etuvchi asosiy omillar aniqlandi va tizimlashtirildi."
                         ),
                     ),
                     ChapterSection(
-                        title="2.2. Samaradorlikni oshirish bo'yicha amaliy takliflar",
+                        title=f"2.2. {topic} samaradorligini oshirish bo'yicha ilmiy-amaliy takliflar",
                         content=(
-                            "Vaziyatni o'rganish jarayonida bir nechta amaliy choralarni ko'rish zarurligi ma'lum bo'ldi. "
-                            "Avvalo, jarayonlarni to'liq raqamlashtirish va xodimlarni yangi tizim bilan ishlashga o'rgatish lozim.\n\n"
-                            "Shuningdek, tizimning ishlashini muntazam nazorat qilib boruvchi monitoring mexanizmini joriy qilish yaxshi samara beradi. "
-                            "Bu orqali yuzaga kelishi mumkin bo'lgan xatoliklarni oldindan payqash va ularni vaqtida tuzatish imkoni tug'iladi."
+                            f"Olib borilgan tadqiqot natijalari asosida «{topic}» yo'nalishini takomillashtirish bo'yicha bir qator amaliy tavsiyalar ishlab chiqildi. "
+                            "Birinchidan, jarayonlarga zamonaviy axborot va tahliliy vositalarni keng jalb etish maqsadga muvofiqdir.\n\n"
+                            "Ikkinchidan, sohada monitoring va sifat nazoratini kuchaytirish yuzaga kelishi mumkin bo'lgan kamchiliklarning oldini oladi. "
+                            "Mazkur tavsiyalar soha samaradorligini sifat jihatidan yangi bosqichga ko'tarishga xizmat qiladi."
                         ),
                     ),
                 ],
             ),
         ],
         conclusion=(
-            f"Mavzu ustida ishlash davomida «{topic}» zamonaviy dunyoda qanchalik muhim o'rin tutishini tushunib yetdim. "
-            "Faqat nazariyani yodlab olish yetarli emas, balki uni amalda qanday qo'llashni bilish kerak.\n\n"
-            "Tahlillarim shuni ko'rsatadiki, sohadagi muammolarni bartaraf etish uchun, birinchi navbatda, zamonaviy bilimlarni egallash va yangi texnologiyalardan qo'rqmasdan foydalanish talab etiladi. "
-            "Mustaqil ishda bayon etilgan takliflar kelgusida ushbu yo'nalishni yanada chuqurroq o'rganish uchun foydali asos bo'ladi deb hisoblayman."
+            f"Xulosa qilib aytganda, «{topic}» mavzusida olib borilgan ushbu mustaqil ish sohaning nazariy va amaliy ahamiyati nihoyatda yuqori ekanligini tasdiqlaydi.\n\n"
+            f"Ishda ilgari surilgan ilmiy-nazariy xulosalar va amaliy tavsiyalar {domain_meta['subject'].lower()} sohasida yangi yutuqlarga erishishda foydali qo'llanma bo'lib xizmat qiladi. "
+            "Tadqiqot natijalari kelgusida mazkur yo'nalishni yanada chuqurroq o'rganish uchun mustahkam ilmiy asos yaratadi."
         ),
-        references=[
-            "Karimov A.X. Zamonaviy boshqaruv va tahlil asoslari. Darslik. — Toshkent: Iqtisodiyot, 2023. — 280 b.",
-            "Abdullayev R.M. Innovatsion taraqqiyot strategiyasi. — Toshkent: Fan va texnologiya, 2024. — 310 b.",
-            "Smith J., Johnson M. Modern Trends and Strategic Innovations. — London: Academic Press, 2023.",
-            "O'zbekiston Respublikasi Statistika agentligi ma'lumotlari (stat.uz), 2025-2026 yy.",
-            "Sohaga oid me'yoriy-huquqiy hujjatlar va o'quv-uslubiy qo'llanmalar to'plami, 2024.",
-        ],
+        references=domain_meta["refs"],
     )
 
     if not key:
@@ -151,56 +225,53 @@ async def generate_academic_essay_content(
     candidate_models = [
         config.GEMINI_MODEL,
         "gemini-2.5-flash",
-        "gemini-3.5-flash",
+        "gemini-2.0-flash",
+        "gemini-1.5-flash",
         "gemini-flash-latest",
     ]
     seen = set()
     models_to_try = [m for m in candidate_models if m and not (m in seen or seen.add(m))]
 
-    prompt = f"""Sen — mustaqil ish tayyorlayotgan universitet talabasisan. Matningni sun'iy intellekt emas, aynan inson (talaba) o'z qo'li bilan yozgandek bo'lishi shart.
+    prompt = f"""Sen — O'zbekistonning nufuzli OTM talabasisan. Berilgan mavzu bo'yicha Oliy ta'lim standartlariga (OTM) to'liq mos keladigan, chuqur ilmiy-tadqiqot darajasidagi MUSTAQIL ISH / REFERAT tayyorlashing kerak.
 
 MAVZU: «{topic}»
 TALABA ISMI: {author_str}
 OTM NOMI: {univ_str}
-TIL: {language} (o'zbekcha / ruscha / inglizcha)
+FAKULTET YO'NALISHI: {domain_meta['faculty']}
+TIL: {language} (o'zbekcha adabiy tilda, lotin alifbosida)
 
-QUYIDAGI QOIDALARGA QAT'IY AMAL QIL:
-1. Qoliplardan qoch: "Xulosa qilib aytganda", "Shuni alohida ta'kidlash lozimki", "Bugungi shiddat bilan rivojlanayotgan davrda", "Ushbu sohada olib borilayotgan islohotlar", "Birinchidan, ikkinchidan, uchinchidan" kabi sun'iy intellektga xos shablon iboralarni umuman ishlatma.
-2. Jumlalar ritmini o'zgartir: Ba'zi gaplar uzun va tushuntiruvchi, ba'zilari esa qisqa va lo'nda bo'lsin. Hammasi bir xil grammatik qolipda ketma-ket kelmasin.
-3. Jonli tushuntirish: Fikrni faqat quruq kitobiy qoidalardan ko'ra, tushunarli amaliy misollar bilan izohla (masalan: "buni amalda ko'radigan bo'lsak...", "oddiy qilib aytganda...", "hayotda buni qanday ko'rishimiz mumkin?").
-4. Talaba tili: Matn to'liq savodli bo'lsin, lekin haddan tashqari balandparvoz yoki ensiklopedik soxta ilmiy terminlar bilan to'ldirib yuborma.
-5. Tabiiy o'tishlar: Har bir fikrni faqat raqamli ro'yxat (1., 2., 3.) qilib bermasdan, matn ichida mantiqiy abzaslar orqali bir-biriga ula.
+QAT'IY TALABLAR (100% MAVZUGA SADOQAT VA AKADEMIK SIFAT):
+1. MAVZUGA 100% CHUQUR MOSLIK:
+   - Matnning har bir qatori, sarlavhalari, bo'limlari va xulosalari AYNAN «{topic}» MAVZUSIGA BAXSHIDA BO'LISHI SHART!
+   - Soha terminologiyasidan to'g'ri va savodli foydalaning (Tarix bo'lsa tarixiy voqealar va allomalar; Tibbiyot bo'lsa tibbiy atamalar; Huquq bo'lsa qonunlar; Pedagogika bo'lsa ta'lim metodikasi va h.k.).
+   - Noo'rin yoki mavzuga aloqasiz umumiy shablonlarni aslo ishlatmang!
 
-HUJJAT STRUKTURASI:
-1. `topic`: Mavzu nomi.
-2. `university`: Universitet/Institut nomi.
-3. `faculty`: Fakultet va yo'nalish nomi.
-4. `author_name`: Talabaning ismi-sharifi.
-5. `teacher_name`: Ilmiy rahbar / O'qituvchi lavozimi va ismi.
-6. `year`: 2026
-7. `city`: Toshkent (yoki mos shahar)
-8. `introduction`: Kamida 3-4 ta to'liq, samimiy va jonli talaba tilidagi abzasdan iborat KIRISH (Nima uchun bu mavzuni tanlagani, amaliy qiziqishi, nimalarni aniqlamoqchiligi).
-9. `chapters`: Kamida 2 ta asosiy BOB:
-   - I Bob: Nazariy tushunchalar va mohiyati (tarkibida 2 ta kichik bo'lim, har bir bo'limda kamida 3-4 ta mazmunli, jonli va tushunarli abzas).
-   - II Bob: Amaliy holat, kamchiliklar va takliflar (tarkibida 2 ta kichik bo'lim, har birida amaliy hayotiy tahlillar, misollar va jonli xulosalar).
-10. `conclusion`: Kamida 3-4 ta abzasdan iborat XULOSA (qoliplarsiz, talabaning shaxsiy xulosalari va kelajakdagi takliflari bilan).
-11. `references`: 6 dan 8 tagacha bo'lgan rasmiy darsliklar, ilmiy maqolalar va ishonchli manbalar ro'yxati.
+2. AKADEMIK DARAJA VA ILMIY USLUB:
+   - Matn savodli, tahliliy va ilmiy dalillarga boy bo'lsin.
+   - Har bir kichik bo'limda kamida 3-4 ta mazmunli, chuqur tahliliy abzas bo'lsin.
+   - Adabiyotlar ro'yxatida aynan shu sohaga oid nufuzli darsliklar, ilmiy maqolalar va rasmiy manbalar bo'lsin.
+
+3. HUJJAT TUZILISHI:
+   - `topic`: «{topic}»
+   - `university`: OTM nomi
+   - `faculty`: Mavzuga mos fakultet nomi ({domain_meta['faculty']})
+   - `author_name`: {author_str}
+   - `teacher_name`: Ilmiy rahbar / O'qituvchi lavozimi va ismi
+   - `year`: 2026
+   - `city`: Toshkent (yoki tegishli shahar)
+   - `introduction`: Mavzuning dolzarbligi, maqsadi, vazifalari va obyekti (kamida 3-4 ta abzas)
+   - `chapters`: Kamida 2 ta asosiy BOB:
+      * I Bob: Mavzuning nazariy va konseptual asoslari (2 ta kichik bo'lim)
+      * II Bob: Mavzuning amaliy tahlili va takomillashtirish yo'llari (2 ta kichik bo'lim)
+   - `conclusion`: Ilmiy xulosalar va amaliy tavsiyalar (kamida 3-4 ta abzas)
+   - `references`: 6 dan 8 tagacha bo'lgan rasmiy va sohaga oid darsliklar ro'yxati
 
 Javobni FAQAT AcademicEssay JSON formatida qaytar."""
 
     system_prompt = (
-        "Sen — mustaqil ish tayyorlayotgan universitet talabasisan. Matningni sun'iy intellekt emas, "
-        "aynan inson (talaba) o'z qo'li bilan yozgandek bo'lishi shart.\n\n"
-        "Qoidalarga qat'iy amal qil:\n"
-        "1. Qoliplardan qoch: 'Xulosa qilib aytganda', 'Shuni alohida ta'kidlash lozimki', "
-        "'Bugungi shiddat bilan rivojlanayotgan davrda', 'Ushbu sohada olib borilayotgan islohotlar', "
-        "'Birinchidan, ikkinchidan, uchinchidan' kabi sun'iy intellektga xos shablon iboralarni umuman ishlatma.\n"
-        "2. Jumlalar ritmini o'zgartir: Ba'zi gaplar uzun va tushuntiruvchi, ba'zilari esa qisqa va lo'nda bo'lsin. "
-        "Hammasi bir xil grammatik qolipda ketma-ket kelmasin.\n"
-        "3. Jonli tushuntirish: Fikrni faqat quruq kitobiy qoidalardan ko'ra, tushunarli amaliy misollar bilan izohla "
-        "(masalan: 'buni amalda ko'radigan bo'lsak...', 'oddiy qilib aytganda...', 'hayotda buni qanday ko'rishimiz mumkin?').\n"
-        "4. Talaba tili: Matn to'liq savodli bo'lsin, lekin haddan tashqari balandparvoz yoki ensiklopedik soxta ilmiy terminlar bilan to'ldirib yuborma.\n"
-        "5. Tabiiy o'tishlar: Har bir fikrni faqat raqamli ro'yxat (1., 2., 3.) qilib bermasdan, matn ichida mantiqiy abzaslar orqali bir-biriga ula."
+        "Siz Oliy Ta'lim Muassasasi ilmiy xodimi va talabasisiz. "
+        f"Mavzu: «{topic}». Berilgan mavzuni chuqur ilmiy-akademik tilda, aniq faktlar, tahlillar va adabiyotlar bilan yoriting. "
+        "Umumiy qoliplardan qoching, butun matn mavzuga 100% sodiq bo'lsin."
     )
 
     for model_name in models_to_try:

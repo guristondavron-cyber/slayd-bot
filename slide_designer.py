@@ -103,43 +103,8 @@ def generate_themes_showcase_image() -> str:
 
 
 def fetch_topic_image(keyword: str) -> Optional[str]:
-    """Mavzuga mos real fotosuratni yuklab oladi va keshlaydi."""
-    if not keyword:
-        return None
-    clean_kw = "".join(c for c in keyword if c.isalnum() or c in (" ", "_", "-")).strip()
-    if not clean_kw:
-        return None
-
-    file_hash = hashlib.md5(clean_kw.encode("utf-8")).hexdigest()
-    cached_path = os.path.join(config.IMAGE_CACHE_DIR, f"{file_hash}.jpg")
-    if os.path.exists(cached_path) and os.path.getsize(cached_path) > 2000:
-        return cached_path
-
-    # 1. Pollinations AI orqali mavzuga mos rasm generatsiya qilish
-    try:
-        encoded_kw = urllib.parse.quote(clean_kw.replace(" ", "_"))
-        pol_url = f"https://image.pollinations.ai/prompt/{encoded_kw}?width=800&height=600&nologo=true"
-        r = requests.get(pol_url, timeout=3.0)
-        if r.status_code == 200 and len(r.content) > 3000:
-            with open(cached_path, "wb") as f:
-                f.write(r.content)
-            return cached_path
-    except Exception:
-        pass
-
-    # 2. Picsum Photos orqali zaxira foto
-    try:
-        seed = abs(hash(clean_kw)) % 1000
-        picsum_url = f"https://picsum.photos/seed/{seed}/800/600"
-        r = requests.get(picsum_url, timeout=2.5)
-        if r.status_code == 200 and len(r.content) > 3000:
-            with open(cached_path, "wb") as f:
-                f.write(r.content)
-            return cached_path
-    except Exception:
-        pass
-
-    return None
+    """Mavzuga mos rasm olish uchun yagona va xavfsiz image_service dan foydalanadi."""
+    return fetch_ai_image_sync(keyword)
 
 
 def create_presentation_file(
